@@ -43,7 +43,7 @@ def calc_mse_for_single_trajectory(
     action_horizon=16,
     plot=False,
 ):
-    state_joints_across_time = []
+    # state_joints_across_time = []
     gt_action_joints_across_time = []
     pred_action_joints_across_time = []
 
@@ -53,14 +53,14 @@ def calc_mse_for_single_trajectory(
         # NOTE this is to get all modality keys concatenated
         # concat_state = data_point[f"state.{modality_keys[0]}"][0]
         # concat_gt_action = data_point[f"action.{modality_keys[0]}"][0]
-        concat_state = np.concatenate(
-            [data_point[f"state.{key}"][0] for key in modality_keys], axis=0
-        )
+        # concat_state = np.concatenate(
+        #     [data_point[f"state.{key}"][0] for key in modality_keys], axis=0
+        # )
         concat_gt_action = np.concatenate(
             [data_point[f"action.{key}"][0] for key in modality_keys], axis=0
         )
 
-        state_joints_across_time.append(concat_state)
+        # state_joints_across_time.append(concat_state)
         gt_action_joints_across_time.append(concat_gt_action)
 
         if step_count % action_horizon == 0:
@@ -76,47 +76,53 @@ def calc_mse_for_single_trajectory(
                 pred_action_joints_across_time.append(concat_pred_action)
 
     # plot the joints
-    state_joints_across_time = np.array(state_joints_across_time)
+    # state_joints_across_time = np.array(state_joints_across_time)
     gt_action_joints_across_time = np.array(gt_action_joints_across_time)
     pred_action_joints_across_time = np.array(pred_action_joints_across_time)[:steps]
-    assert (
-        state_joints_across_time.shape
-        == gt_action_joints_across_time.shape
-        == pred_action_joints_across_time.shape
-    )
+
+    for i in range(10):
+        print(f"gt_action_joints_across_time[{i}]: {gt_action_joints_across_time[i]}")
+        print(f"pred_action_joints_across_time[{i}]: {pred_action_joints_across_time[i]}")
+        print("-" * 100)
+
+    # assert (
+    #     state_joints_across_time.shape
+    #     == gt_action_joints_across_time.shape
+    #     == pred_action_joints_across_time.shape
+    # )
 
     # calc MSE across time
     mse = np.mean((gt_action_joints_across_time - pred_action_joints_across_time) ** 2)
     print("Unnormalized Action MSE across single traj:", mse)
 
-    num_of_joints = state_joints_across_time.shape[1]
+    # num_of_joints = state_joints_across_time.shape[1]
 
-    if plot:
-        fig, axes = plt.subplots(nrows=num_of_joints, ncols=1, figsize=(8, 4 * num_of_joints))
+    # if plot:
+    #     fig, axes = plt.subplots(nrows=num_of_joints, ncols=1, figsize=(8, 4 * num_of_joints))
 
-        # Add a global title showing the modality keys
-        fig.suptitle(
-            f"Trajectory {traj_id} - Modalities: {', '.join(modality_keys)}",
-            fontsize=16,
-            color="blue",
-        )
+    #     # Add a global title showing the modality keys
+    #     fig.suptitle(
+    #         f"Trajectory {traj_id} - Modalities: {', '.join(modality_keys)}",
+    #         fontsize=16,
+    #         color="blue",
+    #     )
 
-        for i, ax in enumerate(axes):
-            ax.plot(state_joints_across_time[:, i], label="state joints")
-            ax.plot(gt_action_joints_across_time[:, i], label="gt action joints")
-            ax.plot(pred_action_joints_across_time[:, i], label="pred action joints")
+    #     for i, ax in enumerate(axes):
+    #         ax.plot(state_joints_across_time[:, i], label="state joints")
+    #         ax.plot(gt_action_joints_across_time[:, i], label="gt action joints")
+    #         ax.plot(pred_action_joints_across_time[:, i], label="pred action joints")
 
-            # put a dot every ACTION_HORIZON
-            for j in range(0, steps, action_horizon):
-                if j == 0:
-                    ax.plot(j, gt_action_joints_across_time[j, i], "ro", label="inference point")
-                else:
-                    ax.plot(j, gt_action_joints_across_time[j, i], "ro")
+    #         # put a dot every ACTION_HORIZON
+    #         for j in range(0, steps, action_horizon):
+    #             if j == 0:
+    #                 ax.plot(j, gt_action_joints_across_time[j, i], "ro", label="inference point")
+    #             else:
+    #                 ax.plot(j, gt_action_joints_across_time[j, i], "ro")
 
-            ax.set_title(f"Joint {i}")
-            ax.legend()
+    #         ax.set_title(f"Joint {i}")
+    #         ax.legend()
 
-        plt.tight_layout()
-        plt.show()
+    #     plt.tight_layout()
+    #     plt.show()
 
     return mse

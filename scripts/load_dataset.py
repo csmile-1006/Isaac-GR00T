@@ -122,11 +122,16 @@ def load_dataset(dataset_path: str, embodiment_tag: str, video_backend: str = "d
     images_list = []
     video_key = video_modality_keys[0]  # we will use the first video modality
 
-    for i in range(100):
+    for i in range(500, 600):
         if i % 10 == 0:
             resp = dataset[i]
             img = resp[video_key][0]
             images_list.append(img)
+
+            for action_key in action_modality_keys:
+                action = resp[action_key]
+                print(f"action[{action_key}]: {action}")
+            print("-" * 100)
 
     fig, axs = plt.subplots(2, 5, figsize=(20, 10))
     for i, ax in enumerate(axs.flat):
@@ -134,6 +139,7 @@ def load_dataset(dataset_path: str, embodiment_tag: str, video_backend: str = "d
         ax.axis("off")
         ax.set_title(f"Image {i}")
     plt.tight_layout()  # adjust the subplots to fit into the figure area.
+    plt.savefig("images.png")
     plt.show()
 
 

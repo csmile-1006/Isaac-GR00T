@@ -247,9 +247,12 @@ if __name__ == "__main__":
             # Use subprocess.run instead of os.system
             cmd = [
                 "torchrun",
-                "--standalone",
+                f"--nnodes={os.environ['SLURM_JOB_NUM_NODES']}",
                 f"--nproc_per_node={config.num_gpus}",
-                "--nnodes=1",  # default to 1 node for now
+                f"--node_rank={os.environ['SLURM_NODEID']}",
+                f"--rdzv_id={os.environ['SLURM_JOB_ID']}",
+                "--rdzv_backend=c10d",
+                f"--rdzv_endpoint={os.environ['MASTER_ADDR']}:{os.environ.get('MASTER_PORT', '29500')}",
                 str(script_path),
             ]
 

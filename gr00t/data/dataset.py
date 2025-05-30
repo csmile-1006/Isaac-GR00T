@@ -96,6 +96,7 @@ class LeRobotSingleDataset(Dataset):
         video_backend: str = "decord",
         video_backend_kwargs: dict | None = None,
         transforms: ComposedModalityTransform | None = None,
+        num_demos: int | None = None,
     ):
         """
         Initialize the dataset.
@@ -128,7 +129,7 @@ class LeRobotSingleDataset(Dataset):
             self.tag = embodiment_tag
 
         self._metadata = self._get_metadata(EmbodimentTag(self.tag))
-        self._trajectory_ids, self._trajectory_lengths = self._get_trajectories()
+        self._trajectory_ids, self._trajectory_lengths = self._get_trajectories(num_demos)
         self._all_steps = self._get_all_steps()
         self._modality_keys = self._get_modality_keys()
         self._delta_indices = self._get_delta_indices()
@@ -136,7 +137,6 @@ class LeRobotSingleDataset(Dataset):
         self.set_epoch(0)
 
         print(f"Initialized dataset {self.dataset_name} with {embodiment_tag}")
-
         # LeRobot-specific config
         self._lerobot_modality_meta = self._get_lerobot_modality_meta()
         self._lerobot_info_meta = self._get_lerobot_info_meta()
@@ -346,7 +346,7 @@ class LeRobotSingleDataset(Dataset):
 
         return metadata
 
-    def _get_trajectories(self) -> tuple[np.ndarray, np.ndarray]:
+    def _get_trajectories(self, num_demos: int | None = None) -> tuple[np.ndarray, np.ndarray]:
         """Get the trajectories in the dataset."""
         # Get trajectory lengths, IDs, and whitelist from dataset metadata
         episode_path = self.dataset_path / LE_ROBOT_EPISODE_FILENAME
@@ -357,6 +357,11 @@ class LeRobotSingleDataset(Dataset):
         for episode in episode_metadata:
             trajectory_ids.append(episode["episode_index"])
             trajectory_lengths.append(episode["length"])
+        if num_demos is not None:
+            trajectory_ids = trajectory_ids[:num_demos]
+            trajectory_lengths = trajectory_lengths[:num_demos]
+
+        print(f"Using {len(trajectory_ids)} trajectories")
         return np.array(trajectory_ids), np.array(trajectory_lengths)
 
     def _get_all_steps(self) -> list[tuple[int, int]]:
