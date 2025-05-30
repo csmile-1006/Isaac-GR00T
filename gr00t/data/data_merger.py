@@ -161,11 +161,11 @@ class DatasetManager:
             dataset_paths, meta_dst_dir, actual_episode_counts_per_dataset, actual_frame_counts_per_dataset, verbose
         )
 
-        # if verbose:
-        #     print("\n--- Processing Video Files ---")
-        # self._copy_all_videos_for_merge(
-        #     dataset_paths, video_dst_chunk_roots, chunk_path, actual_episode_counts_per_dataset, verbose
-        # )
+        if verbose:
+            print("\n--- Processing Video Files ---")
+        self._copy_all_videos_for_merge(
+            dataset_paths, video_dst_chunk_roots, chunk_path, actual_episode_counts_per_dataset, verbose
+        )
 
         final_info_path = meta_dst_dir / "info.json"
         final_total_episodes = "N/A"
@@ -277,7 +277,7 @@ class DatasetManager:
             src_ep = src_meta_dir / "episodes.jsonl"
             if src_ep.exists():
                 base_data = self.read_jsonl(ep_out) if ep_out.exists() else []
-                new_data = self.read_jsonl(src_ep)
+                new_data = self.read_jsonl(src_ep)[:actual_episode_counts[i]]
                 for r_new in new_data:  # Similar shifting as episodes_stats
                     r_new["episode_index"] += current_meta_episode_offset
                     if "index" in r_new:
@@ -290,10 +290,11 @@ class DatasetManager:
                 self.write_jsonl(base_data + new_data, ep_out)
 
             # Merge tasks.jsonl
+            num_new_tasks = 0
             src_tasks = src_meta_dir / "tasks.jsonl"
             if src_tasks.exists():
                 base_tasks = self.read_jsonl(tasks_out) if tasks_out.exists() else []
-                new_tasks = self.read_jsonl(src_tasks)
+                new_tasks = self.read_jsonl(src_tasks)[:actual_episode_counts[i]]
                 existing_task_names = {r["task"]: r["task_index"] for r in base_tasks}
                 next_idx = max(existing_task_names.values()) + 1 if existing_task_names else 0
                 for r_new in new_tasks:
@@ -301,6 +302,7 @@ class DatasetManager:
                         base_tasks.append({"task": r_new["task"], "task_index": next_idx})
                         existing_task_names[r_new["task"]] = next_idx
                         next_idx += 1
+                        num_new_tasks += 1
                 self.write_jsonl(sorted(base_tasks, key=lambda x: x["task_index"]), tasks_out)
 
             # Merge info.json
@@ -309,12 +311,12 @@ class DatasetManager:
                 d_base = json.loads(info_out.read_text()) if info_out.exists() else {}
                 d_new = json.loads(src_info.read_text())
                 merged_info = d_base.copy()
-                for k in MERGE_NUM_KEYS:
-                    merged_info[k] = merged_info.get(k, 0) + d_new.get(k, 0)
+                # for k in MERGE_NUM_KEYS:
+                #     merged_info[k] = merged_info.get(k, 0) + d_new.get(k, 0)
                 for k, v in d_new.items():
                     if (
                         k not in MERGE_NUM_KEYS
-                        and k not in ["splits", "total_episodes", "total_frames", "chunks_size", "total_chunks"]
+                        and k not in ["splits", "total_episodes", "total_frames", "chunks_size", "total_chunks", "total_tasks"]
                         or k == "splits"
                         and not d_base
                     ):
@@ -327,6 +329,7 @@ class DatasetManager:
                 merged_info["total_episodes"] = merged_info.get("total_episodes", 0) + actual_episode_counts[i]
                 merged_info["total_frames"] = merged_info.get("total_frames", 0) + actual_frame_counts[i]
                 merged_info["total_chunks"] = merged_info.get("total_chunks", 0) + 1
+                merged_info["total_tasks"] = merged_info.get("total_tasks", 0) + num_new_tasks
 
                 info_out.write_text(json.dumps(merged_info, indent=2))
 
@@ -353,7 +356,7 @@ class DatasetManager:
             cam_dirs = sorted(p for p in src_video_root.iterdir() if p.is_dir())
             if not cam_dirs:  # Videos directly under chunk root
                 vids_in_chunk = self._natural_sort_paths(src_video_root.glob("episode_*.mp4"))
-                for src_vid in vids_in_chunk:
+                for src_vid in vids_in_chunk[:eps_in_this_ds]:
                     dst_idx = self._extract_idx_from_name(src_vid.name) + current_video_start_idx
                     shutil.copy2(src_vid, video_dst_chunk_root / f"episode_{dst_idx:0{PAD}d}.mp4")
             else:  # Videos in camera subdirectories
@@ -361,7 +364,7 @@ class DatasetManager:
                     dst_cam_path = video_dst_chunk_root / cam_dir_path.name
                     self.safe_mkdir(dst_cam_path)
                     vids = self._natural_sort_paths(cam_dir_path.glob("episode_*.mp4"))
-                    for src_vid_path in vids:
+                    for src_vid_path in vids[:eps_in_this_ds]:
                         dst_idx = self._extract_idx_from_name(src_vid_path.name) + current_video_start_idx
                         shutil.copy2(src_vid_path, dst_cam_path / f"episode_{dst_idx:0{PAD}d}.mp4")
             if verbose:
