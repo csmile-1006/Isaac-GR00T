@@ -241,6 +241,7 @@ class DatasetManager:
         ep_out = meta_dst_dir / "episodes.jsonl"
         tasks_out = meta_dst_dir / "tasks.jsonl"
         info_out = meta_dst_dir / "info.json"
+        modality_out = meta_dst_dir / "modality.json"
 
         for p in [ep_out, tasks_out, info_out]:
             p.unlink(missing_ok=True)
@@ -332,6 +333,16 @@ class DatasetManager:
                 merged_info["total_tasks"] = merged_info.get("total_tasks", 0) + num_new_tasks
 
                 info_out.write_text(json.dumps(merged_info, indent=2))
+
+            # Merge modality.json
+            src_modality = src_meta_dir / "modality.json"
+            if src_modality.exists():
+                d_base = json.loads(modality_out.read_text()) if modality_out.exists() else {}
+                d_new = json.loads(src_modality.read_text())
+                merged_modality = d_base.copy()
+                for k, v in d_new.items():
+                    merged_modality[k] = v
+                modality_out.write_text(json.dumps(merged_modality, indent=2))
 
             current_meta_episode_offset += eps_in_this_ds_for_meta
 
