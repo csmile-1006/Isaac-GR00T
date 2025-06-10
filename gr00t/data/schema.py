@@ -51,6 +51,15 @@ class LeRobotModalityField(BaseModel):
     )
 
 
+class LeRobotRLModalityField(LeRobotModalityField):
+    """Metadata for a LeRobot RL modality field."""
+
+    dtype: str = Field(
+        default="float64",
+        description="The data type of the modality. Defaults to float64.",
+    )
+
+
 class LeRobotStateActionMetadata(LeRobotModalityField):
     """Metadata for a LeRobot modality."""
 
@@ -62,9 +71,7 @@ class LeRobotStateActionMetadata(LeRobotModalityField):
         ...,
         description="The end index of the modality in the concatenated state/action vector",
     )
-    rotation_type: Optional[RotationType] = Field(
-        default=None, description="The type of rotation for the modality"
-    )
+    rotation_type: Optional[RotationType] = Field(default=None, description="The type of rotation for the modality")
     absolute: bool = Field(default=True, description="Whether the modality is absolute")
     dtype: str = Field(
         default="float64",
@@ -155,14 +162,83 @@ class LeRobotModalityMetadata(BaseModel):
                 )
             return self.video[subkey]
         elif modality == "annotation":
-            assert (
-                self.annotation is not None
-            ), "Trying to get annotation metadata for a dataset with no annotations"
+            assert self.annotation is not None, "Trying to get annotation metadata for a dataset with no annotations"
             if subkey not in self.annotation:
                 raise ValueError(
                     f"Key: {key}, annotation key {subkey} not found in metadata, available annotation keys: {self.annotation.keys()}"
                 )
             return self.annotation[subkey]
+        else:
+            raise ValueError(f"Key: {key}, unexpected modality: {modality}")
+
+
+class LeRobotRLModalityMetadata(LeRobotModalityMetadata):
+    """Metadata for a LeRobot RL modality."""
+
+    reward: dict[str, LeRobotRLModalityField] = Field(
+        ...,
+        description="The metadata for the reward modality. The keys are the new names of each reward modality.",
+    )
+    done: dict[str, LeRobotRLModalityField] = Field(
+        ...,
+        description="The metadata for the done modality. The keys are the new names of each done modality.",
+    )
+
+    def get_key_meta(self, key: str) -> LeRobotModalityField:
+        """Get the metadata for a key in the LeRobot modality metadata.
+
+        Args:
+            key (str): The key to get the metadata for.
+
+        Returns:
+            LeRobotModalityField: The metadata for the key.
+
+        Example:
+            lerobot_modality_meta = LeRobotModalityMetadata.model_validate(U.load_json(modality_meta_path))
+            lerobot_modality_meta.get_key_meta("state.joint_shoulder_y")
+            lerobot_modality_meta.get_key_meta("video.main_camera")
+            lerobot_modality_meta.get_key_meta("annotation.human.action.task_description")
+        """
+        split_key = key.split(".")
+        modality = split_key[0]
+        subkey = ".".join(split_key[1:])
+        if modality == "state":
+            if subkey not in self.state:
+                raise ValueError(
+                    f"Key: {key}, state key {subkey} not found in metadata, available state keys: {self.state.keys()}"
+                )
+            return self.state[subkey]
+        elif modality == "action":
+            if subkey not in self.action:
+                raise ValueError(
+                    f"Key: {key}, action key {subkey} not found in metadata, available action keys: {self.action.keys()}"
+                )
+            return self.action[subkey]
+        elif modality == "video":
+            if subkey not in self.video:
+                raise ValueError(
+                    f"Key: {key}, video key {subkey} not found in metadata, available video keys: {self.video.keys()}"
+                )
+            return self.video[subkey]
+        elif modality == "annotation":
+            assert self.annotation is not None, "Trying to get annotation metadata for a dataset with no annotations"
+            if subkey not in self.annotation:
+                raise ValueError(
+                    f"Key: {key}, annotation key {subkey} not found in metadata, available annotation keys: {self.annotation.keys()}"
+                )
+            return self.annotation[subkey]
+        elif modality == "reward":
+            if subkey not in self.reward:
+                raise ValueError(
+                    f"Key: {key}, reward key {subkey} not found in metadata, available reward keys: {self.reward.keys()}"
+                )
+            return self.reward[subkey]
+        elif modality == "done":
+            if subkey not in self.done:
+                raise ValueError(
+                    f"Key: {key}, done key {subkey} not found in metadata, available done keys: {self.done.keys()}"
+                )
+            return self.done[subkey]
         else:
             raise ValueError(f"Key: {key}, unexpected modality: {modality}")
 

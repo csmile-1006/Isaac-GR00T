@@ -29,7 +29,7 @@ from .embodiment_tags import EmbodimentTag
 from .schema import (
     DatasetMetadata,
     DatasetStatisticalValues,
-    LeRobotModalityMetadata,
+    LeRobotRLModalityMetadata,
     LeRobotStateActionMetadata,
 )
 from .transform import ComposedModalityTransform
@@ -212,7 +212,7 @@ class LeRobotSingleDataset(Dataset):
         return self._dataset_name
 
     @property
-    def lerobot_modality_meta(self) -> LeRobotModalityMetadata:
+    def lerobot_modality_meta(self) -> LeRobotRLModalityMetadata:
         """The metadata for the LeRobot dataset."""
         return self._lerobot_modality_meta
 
@@ -257,7 +257,7 @@ class LeRobotSingleDataset(Dataset):
         # 1.1. State and action modalities
         simplified_modality_meta: dict[str, dict] = {}
         with open(modality_meta_path, "r") as f:
-            le_modality_meta = LeRobotModalityMetadata.model_validate(json.load(f))
+            le_modality_meta = LeRobotRLModalityMetadata.model_validate(json.load(f))
         for modality in ["state", "action"]:
             simplified_modality_meta[modality] = {}
             le_state_action_meta: dict[str, LeRobotStateActionMetadata] = getattr(
@@ -305,6 +305,16 @@ class LeRobotSingleDataset(Dataset):
                 "channels": channels,
                 "fps": fps,
             }
+
+        # 1.3. Reward and done modalities
+        simplified_modality_meta["reward"] = {
+            "shape": [1],
+            "dtype": "float64",
+        }
+        simplified_modality_meta["done"] = {
+            "shape": [1],
+            "dtype": "bool",
+        }
 
         # 2. Dataset statistics
         stats_path = self.dataset_path / LE_ROBOT_STATS_FILENAME
@@ -403,14 +413,14 @@ class LeRobotSingleDataset(Dataset):
                 delta_indices[key] = np.array(config.delta_indices)
         return delta_indices
 
-    def _get_lerobot_modality_meta(self) -> LeRobotModalityMetadata:
+    def _get_lerobot_modality_meta(self) -> LeRobotRLModalityMetadata:
         """Get the metadata for the LeRobot dataset."""
         modality_meta_path = self.dataset_path / LE_ROBOT_MODALITY_FILENAME
         assert (
             modality_meta_path.exists()
         ), f"Please provide a {LE_ROBOT_MODALITY_FILENAME} file in {self.dataset_path}"
         with open(modality_meta_path, "r") as f:
-            modality_meta = LeRobotModalityMetadata.model_validate(json.load(f))
+            modality_meta = LeRobotRLModalityMetadata.model_validate(json.load(f))
         return modality_meta
 
     def _get_lerobot_info_meta(self) -> dict:
@@ -718,6 +728,53 @@ class LeRobotSingleDataset(Dataset):
             padding_strategy="first_last" if state_or_action_cfg.absolute else "zero",
         )
 
+    def get_reward_or_done(
+        self,
+        trajectory_id: int,
+        modality: str,
+        key: str,
+        base_index: int,
+    ) -> np.ndarray:
+        """Get the reward or done data for a trajectory by a base index.
+
+        Args:
+            dataset (BaseSingleDataset): The dataset to retrieve the data from.
+            trajectory_id (int): The ID of the trajectory.
+            modality (str): The modality of the data.
+            key (str): The key of the data.
+            base_index (int): The base index of the trajectory.
+
+        Returns:
+            np.ndarray: The data for the trajectory and step indices.
+        """
+        # Get the step indices
+        step_indices = self.delta_indices[key] + base_index
+        # Get the trajectory index
+        trajectory_index = self.get_trajectory_index(trajectory_id)
+        # Get the maximum length of the trajectory
+        max_length = self.trajectory_lengths[trajectory_index]
+        assert key.startswith(modality + "."), f"{key} must start with {modality + '.'}, got {key}"
+        # Get the sub-key, e.g. next.reward -> reward
+        key = key.replace(modality + ".", "")
+        # Get the lerobot key
+        le_reward_or_done_cfg = getattr(self.lerobot_modality_meta, modality)
+        le_key = le_reward_or_done_cfg[key].original_key
+        if le_key is None:
+            le_key = key
+        # Get the data array, shape: (T, D)
+        assert self.curr_traj_data is not None, f"No data found for {trajectory_id=}"
+        assert le_key in self.curr_traj_data.columns, f"No {le_key} found in {trajectory_id=}"
+        data_array: np.ndarray = np.stack(self.curr_traj_data[le_key])  # type: ignore
+        assert data_array.ndim == 1, f"Expected 1D array, got {data_array.shape} array"
+
+        # Pad the data
+        return self.retrieve_data_and_pad(
+            array=data_array,
+            step_indices=step_indices,
+            max_length=max_length,
+            padding_strategy="zero",
+        )
+
     def get_language(
         self,
         trajectory_id: int,
@@ -787,6 +844,8 @@ class LeRobotSingleDataset(Dataset):
             return self.get_video(trajectory_id, key, base_index)
         elif modality == "state" or modality == "action":
             return self.get_state_or_action(trajectory_id, modality, key, base_index)
+        elif modality == "reward" or modality == "done":
+            return self.get_reward_or_done(trajectory_id, modality, key, base_index)
         elif modality == "language":
             return self.get_language(trajectory_id, key, base_index)
         else:
