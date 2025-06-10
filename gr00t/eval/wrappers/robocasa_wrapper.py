@@ -1,17 +1,32 @@
+from pathlib import Path
+
 import gymnasium as gym
 import numpy as np
 from robocasa.utils.env_utils import create_env
 from robosuite.wrappers import GymWrapper
 
+from gr00t.eval.wrappers.data_collection_wrapper import DataCollectionWrapper
 
-def load_robocasa_gym_env(env_name, seed=None):
+
+def load_robocasa_gym_env(
+    env_name,
+    seed=None,
+    generative_textures: str = None,
+    directory: Path = None,
+    collect_freq: int = 1,
+    flush_freq: int = 100,
+):
     env = create_env(
         env_name=env_name,
         render_onscreen=False,
         seed=seed,  # set seed=None to run unseeded
         camera_widths=256,
         camera_heights=256,
+        generative_textures=generative_textures,
     )
+    if directory is not None and directory.exists():
+        directory.mkdir(parents=True, exist_ok=True)
+    env = DataCollectionWrapper(env, directory, collect_freq=collect_freq, flush_freq=flush_freq)
     env = GymWrapper(
         env,
         flatten_obs=False,
@@ -146,11 +161,14 @@ class RoboCasaWrapper(gym.Wrapper):
         terminated = terminated or info["is_success"]
         return new_obs, reward, terminated, truncated, info
 
+    def close(self):
+        return self.env.close()
+
 
 if __name__ == "__main__":
     env_name = "PnPCounterToMicrowave"
 
-    env = load_robocasa_gym_env(env_name)
+    env = load_robocasa_gym_env(env_name, directory=Path("./tmp_data/"), collect_freq=1, flush_freq=1)
     env = RoboCasaWrapper(env)
 
     obs, _ = env.reset()
@@ -159,4 +177,3 @@ if __name__ == "__main__":
         print(f"Step {i}")
         action = env.action_space.sample()
         obs, reward, terminated, truncated, info = env.step(action)
-        print(f"info at step {i}: {info}")
