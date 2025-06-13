@@ -20,7 +20,7 @@ cd /home/changyeon/workspace/Isaac-GR00T
 python scripts/gr00t_finetune.py \
     --dataset-path ~/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/ \
     --num-gpus 8 \
-    --output-dir ~/gr00t_ckpt/step${STEPS}_${TASK_NAME}_num${NUM_DEMOS}_single_panda_gripper \
+    --output-dir ~/gr00t_n1_5_ckpt/step${STEPS}_${TASK_NAME}_num${NUM_DEMOS}_single_panda_gripper \
     --max-steps ${STEPS} \
     --data-config single_panda_gripper \
     --batch-size 12 \
