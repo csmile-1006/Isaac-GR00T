@@ -213,3 +213,220 @@ class ConcatTransform(InvertibleModalityTransform):
         if self.state_concat_order is not None:
             for key in self.state_concat_order:
                 self.state_dims[key] = self.get_state_action_dims(key)
+
+
+class RLConcatTransform(InvertibleModalityTransform):
+    """
+    Concatenate the keys according to specified order.
+    """
+
+    # -- We inherit from ModalityTransform, so we keep apply_to as well --
+    apply_to: list[str] = Field(
+        default_factory=list, description="Not used in this transform, kept for compatibility."
+    )
+
+    video_concat_order: list[str] = Field(
+        ...,
+        description="Concatenation order for each video modality. "
+        "Format: ['video.ego_view_pad_res224_freq20', ...]",
+    )
+
+    next_video_concat_order: Optional[list[str]] = Field(
+        ...,
+        description="Concatenation order for each next video modality. "
+        "Format: ['next_video.ego_view_pad_res224_freq20', ...]",
+    )
+
+    state_concat_order: Optional[list[str]] = Field(
+        default=None,
+        description="Concatenation order for each state modality. "
+        "Format: ['state.position', 'state.velocity', ...].",
+    )
+
+    next_state_concat_order: Optional[list[str]] = Field(
+        default=None,
+        description="Concatenation order for each next state modality. "
+        "Format: ['next_state.position', 'next_state.velocity', ...].",
+    )
+
+    action_concat_order: Optional[list[str]] = Field(
+        default=None,
+        description="Concatenation order for each action modality. "
+        "Format: ['action.position', 'action.velocity', ...].",
+    )
+
+    action_dims: dict[str, int] = Field(
+        default_factory=dict,
+        description="The dimensions of the action keys.",
+    )
+    state_dims: dict[str, int] = Field(
+        default_factory=dict,
+        description="The dimensions of the state keys.",
+    )
+    next_state_dims: dict[str, int] = Field(
+        default_factory=dict,
+        description="The dimensions of the next state keys.",
+    )
+
+    def model_dump(self, *args, **kwargs):
+        if kwargs.get("mode", "python") == "json":
+            include = {
+                "apply_to",
+                "video_concat_order",
+                "state_concat_order",
+                "action_concat_order",
+            }
+        else:
+            include = kwargs.pop("include", None)
+
+        return super().model_dump(*args, include=include, **kwargs)
+
+    def apply(self, data: dict) -> dict:
+        grouped_keys = {}
+        for key in data.keys():
+            try:
+                modality, _ = key.split(".")
+            except:  # noqa: E722
+                ### Handle language annotation special case
+                if "annotation" in key:
+                    modality = "language"
+                else:
+                    modality = "others"
+            if modality not in grouped_keys:
+                grouped_keys[modality] = []
+            grouped_keys[modality].append(key)
+
+        # --- Process Video Modalities ---
+        video_modalities = {
+            "video": self.video_concat_order,
+            "next_video": self.next_video_concat_order,
+        }
+        for modality_name, concat_order in video_modalities.items():
+            if modality_name in grouped_keys:
+                available_keys = grouped_keys[modality_name]
+
+                assert concat_order is not None, f"{modality_name}_concat_order must be specified."
+                assert all(
+                    item in available_keys for item in concat_order
+                ), f"Keys in {modality_name}_concat_order are misspecified. \nAvailable: {available_keys}, \nSpecified: {concat_order}"
+
+                # Pop video data, add a view dimension, and concatenate
+                unsqueezed_videos = [np.expand_dims(data.pop(key), axis=-4) for key in concat_order]
+                data[modality_name] = np.concatenate(unsqueezed_videos, axis=-4)  # [..., V, H, W, C]
+
+        # --- Process State/Action Modalities ---
+        state_action_modalities = {
+            "state": (self.state_concat_order, self.state_dims),
+            "next_state": (self.next_state_concat_order, self.next_state_dims),  # NOTE: next_state uses state_dims
+            "action": (self.action_concat_order, self.action_dims),
+        }
+
+        for modality_name, (concat_order, dims_map) in state_action_modalities.items():
+            if modality_name in grouped_keys:
+                available_keys = grouped_keys[modality_name]
+
+                assert concat_order is not None, f"{modality_name}_concat_order must be specified."
+
+                # Check if specified keys match available keys
+                if modality_name == "action":
+                    # For actions, we expect an exact match
+                    assert set(concat_order) == set(
+                        available_keys
+                    ), f"Mismatch between action_concat_order and available keys. \nSpecified: {set(concat_order)}, \nAvailable: {set(available_keys)}"
+                else:
+                    # For states, specified keys must be a subset of available keys
+                    assert all(
+                        item in available_keys for item in concat_order
+                    ), f"Keys in {modality_name}_concat_order are misspecified. \nAvailable: {available_keys}, \nSpecified: {concat_order}"
+
+                # Check dimensions and concatenate
+                tensors_to_concat = []
+                for key in concat_order:
+                    # Dimension validation
+                    target_shapes = [dims_map[key]]
+                    if self.is_rotation_key(key):
+                        if modality_name in ["state", "next_state"]:
+                            target_shapes.append(6)  # Allow for rotation_6d
+                        elif modality_name == "action":
+                            target_shapes.append(3)  # Allow for axis angle
+
+                    if modality_name in ["state", "next_state"]:
+                        target_shapes.append(dims_map[key] * 2)  # Allow for sin-cos transform
+
+                    assert (
+                        data[key].shape[-1] in target_shapes
+                    ), f"{modality_name} dim mismatch for {key=}, got {data[key].shape[-1]}, expected one of {target_shapes}"
+
+                    tensors_to_concat.append(data.pop(key))
+
+                data[modality_name] = torch.cat(tensors_to_concat, dim=-1)
+
+        return data
+
+    def unapply(self, data: dict) -> dict:
+        start_dim = 0
+        assert "action" in data, f"{data.keys()=}"
+        # For those dataset without actions (LAPA), we'll never run unapply
+        assert self.action_concat_order is not None, f"{self.action_concat_order=}"
+        action_tensor = data.pop("action")
+        for key in self.action_concat_order:
+            if key not in self.action_dims:
+                raise ValueError(f"Action dim {key} not found in action_dims.")
+            end_dim = start_dim + self.action_dims[key]
+            data[key] = action_tensor[..., start_dim:end_dim]
+            start_dim = end_dim
+        if "state" in data:
+            assert self.state_concat_order is not None, f"{self.state_concat_order=}"
+            start_dim = 0
+            state_tensor = data.pop("state")
+            for key in self.state_concat_order:
+                end_dim = start_dim + self.state_dims[key]
+                data[key] = state_tensor[..., start_dim:end_dim]
+                start_dim = end_dim
+        if "next_state" in data:
+            assert self.next_state_concat_order is not None, f"{self.next_state_concat_order=}"
+            start_dim = 0
+            next_state_tensor = data.pop("next_state")
+            for key in self.next_state_concat_order:
+                end_dim = start_dim + self.next_state_dims[key]
+                data[key] = next_state_tensor[..., start_dim:end_dim]
+                start_dim = end_dim
+        return data
+
+    def __call__(self, data: dict) -> dict:
+        return self.apply(data)
+
+    def get_modality_metadata(self, key: str) -> StateActionMetadata:
+        modality, subkey = key.split(".")
+        assert self.dataset_metadata is not None, "Metadata not set"
+        modality_config = getattr(self.dataset_metadata.modalities, modality)
+        assert subkey in modality_config, f"{subkey=} not found in {modality_config=}"
+        assert isinstance(
+            modality_config[subkey], StateActionMetadata
+        ), f"Expected {StateActionMetadata} for {subkey=}, got {type(modality_config[subkey])=}"
+        return modality_config[subkey]
+
+    def get_state_action_dims(self, key: str) -> int:
+        """Get the dimension of a state or action key from the dataset metadata."""
+        modality_config = self.get_modality_metadata(key)
+        shape = modality_config.shape
+        assert len(shape) == 1, f"{shape=}"
+        return shape[0]
+
+    def is_rotation_key(self, key: str) -> bool:
+        modality_config = self.get_modality_metadata(key)
+        return modality_config.rotation_type is not None
+
+    def set_metadata(self, dataset_metadata: DatasetMetadata):
+        """Set the metadata and compute the dimensions of the state and action keys."""
+        super().set_metadata(dataset_metadata)
+        # Pre-compute the dimensions of the state and action keys
+        if self.action_concat_order is not None:
+            for key in self.action_concat_order:
+                self.action_dims[key] = self.get_state_action_dims(key)
+        if self.state_concat_order is not None:
+            for key in self.state_concat_order:
+                self.state_dims[key] = self.get_state_action_dims(key)
+        if self.next_state_concat_order is not None:
+            for key in self.next_state_concat_order:
+                self.next_state_dims[key] = self.get_state_action_dims(key)

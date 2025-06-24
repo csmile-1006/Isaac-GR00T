@@ -184,6 +184,16 @@ class LeRobotRLModalityMetadata(LeRobotModalityMetadata):
         description="The metadata for the done modality. The keys are the new names of each done modality.",
     )
 
+    next_state: dict[str, LeRobotStateMetadata] = Field(
+        ...,
+        description="The metadata for the next state modality. The keys are the new names of each next state modality.",
+    )
+
+    next_video: dict[str, LeRobotModalityField] = Field(
+        ...,
+        description="The metadata for the next action modality. The keys are the new names of each next action modality.",
+    )
+
     def get_key_meta(self, key: str) -> LeRobotModalityField:
         """Get the metadata for a key in the LeRobot modality metadata.
 
@@ -208,6 +218,12 @@ class LeRobotRLModalityMetadata(LeRobotModalityMetadata):
                     f"Key: {key}, state key {subkey} not found in metadata, available state keys: {self.state.keys()}"
                 )
             return self.state[subkey]
+        elif modality == "next_state":
+            if subkey not in self.next_state:
+                raise ValueError(
+                    f"Key: {key}, next state key {subkey} not found in metadata, available next state keys: {self.next_state.keys()}"
+                )
+            return self.next_state[subkey]
         elif modality == "action":
             if subkey not in self.action:
                 raise ValueError(
@@ -220,6 +236,12 @@ class LeRobotRLModalityMetadata(LeRobotModalityMetadata):
                     f"Key: {key}, video key {subkey} not found in metadata, available video keys: {self.video.keys()}"
                 )
             return self.video[subkey]
+        elif modality == "next_video":
+            if subkey not in self.next_video:
+                raise ValueError(
+                    f"Key: {key}, next video key {subkey} not found in metadata, available next video keys: {self.next_video.keys()}"
+                )
+            return self.next_video[subkey]
         elif modality == "annotation":
             assert self.annotation is not None, "Trying to get annotation metadata for a dataset with no annotations"
             if subkey not in self.annotation:
@@ -263,6 +285,19 @@ class DatasetStatistics(BaseModel):
     state: dict[str, DatasetStatisticalValues] = Field(..., description="Statistics of the state")
     action: dict[str, DatasetStatisticalValues] = Field(..., description="Statistics of the action")
 
+class RewardMetadata(BaseModel):
+    """Metadata of the reward modality"""
+
+    shape: tuple[int, ...] = Field(..., description="Shape of the reward")
+    dtype: str = Field(..., description="Data type of the reward")
+    discount: float = Field(..., description="Discount factor of the reward")
+
+class DoneMetadata(BaseModel):
+    """Metadata of the done modality"""
+
+    shape: tuple[int, ...] = Field(..., description="Shape of the done")
+    dtype: str = Field(..., description="Data type of the done")
+
 
 class VideoMetadata(BaseModel):
     """Metadata of the video modality"""
@@ -294,4 +329,26 @@ class DatasetMetadata(BaseModel):
 
     statistics: DatasetStatistics = Field(..., description="Statistics of the dataset")
     modalities: DatasetModalities = Field(..., description="Metadata of the modalities")
+    embodiment_tag: EmbodimentTag = Field(..., description="Embodiment tag of the dataset")
+
+
+class RLDatasetModalities(BaseModel):
+    video: dict[str, VideoMetadata] = Field(..., description="Metadata of the video")
+    state: dict[str, StateActionMetadata] = Field(..., description="Metadata of the state")
+    next_state: dict[str, StateActionMetadata] = Field(..., description="Metadata of the next state")
+    next_video: dict[str, VideoMetadata] = Field(..., description="Metadata of the next video")
+    action: dict[str, StateActionMetadata] = Field(..., description="Metadata of the action")
+    reward: RewardMetadata = Field(..., description="Metadata of the reward")
+    done: DoneMetadata = Field(..., description="Metadata of the done")
+
+
+class RLDatasetMetadata(BaseModel):
+    """Metadata of the trainable dataset
+
+    Changes:
+        - Update to use the new RawCommitHashMetadataMetadata_V1_2
+    """
+
+    statistics: DatasetStatistics = Field(..., description="Statistics of the dataset")
+    modalities: RLDatasetModalities = Field(..., description="Metadata of the modalities")
     embodiment_tag: EmbodimentTag = Field(..., description="Embodiment tag of the dataset")

@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 
 from gr00t.data.dataset import ModalityConfig
 from gr00t.data.transform.base import ComposedModalityTransform, ModalityTransform
-from gr00t.data.transform.concat import ConcatTransform
+from gr00t.data.transform.concat import ConcatTransform, RLConcatTransform
 from gr00t.data.transform.state_action import (
     StateActionSinCosTransform,
     StateActionToTensor,
@@ -893,6 +893,18 @@ class SinglePandaGripperRLDataConfig(BaseDataConfig):
         "state.base_position",
         "state.base_rotation",
     ]
+    next_video_keys = [
+        "next_video.left_view",
+        "next_video.right_view",
+        "next_video.wrist_view",
+    ]
+    next_state_keys = [
+        "next_state.end_effector_position_relative",
+        "next_state.end_effector_rotation_relative",
+        "next_state.gripper_qpos",
+        "next_state.base_position",
+        "next_state.base_rotation",
+    ]
     action_keys = [
         "action.end_effector_position",
         "action.end_effector_rotation",
@@ -907,6 +919,10 @@ class SinglePandaGripperRLDataConfig(BaseDataConfig):
     language_keys = ["annotation.human.action.task_description"]
     observation_indices = [0]
     action_indices = list(range(16))
+    reward_indices = list(range(16))
+    done_indices = list(range(16))
+    next_observation_indices = [16]
+    use_rl = True
 
     def modality_config(self):
         video_modality = ModalityConfig(
@@ -926,12 +942,20 @@ class SinglePandaGripperRLDataConfig(BaseDataConfig):
             modality_keys=self.language_keys,
         )
         reward_modality = ModalityConfig(
-            delta_indices=self.observation_indices,
+            delta_indices=self.reward_indices,
             modality_keys=self.reward_keys,
         )
         done_modality = ModalityConfig(
-            delta_indices=self.observation_indices,
+            delta_indices=self.done_indices,
             modality_keys=self.done_keys,
+        )
+        next_state_modality = ModalityConfig(
+            delta_indices=self.next_observation_indices,
+            modality_keys=self.next_state_keys,
+        )
+        next_video_modality = ModalityConfig(
+            delta_indices=self.next_observation_indices,
+            modality_keys=self.next_video_keys,
         )
         modality_configs = {
             "video": video_modality,
@@ -940,27 +964,29 @@ class SinglePandaGripperRLDataConfig(BaseDataConfig):
             "language": language_modality,
             "reward": reward_modality,
             "done": done_modality,
+            "next_state": next_state_modality,
+            "next_video": next_video_modality,
         }
         return modality_configs
 
     def transform(self):
         transforms = [
             # video transforms
-            VideoToTensor(apply_to=self.video_keys),
-            VideoCrop(apply_to=self.video_keys, scale=0.95),
-            VideoResize(apply_to=self.video_keys, height=224, width=224, interpolation="linear"),
+            VideoToTensor(apply_to=self.video_keys + self.next_video_keys),
+            VideoCrop(apply_to=self.video_keys + self.next_video_keys, scale=0.95),
+            VideoResize(apply_to=self.video_keys + self.next_video_keys, height=224, width=224, interpolation="linear"),
             VideoColorJitter(
-                apply_to=self.video_keys,
+                apply_to=self.video_keys + self.next_video_keys,
                 brightness=0.3,
                 contrast=0.4,
                 saturation=0.5,
                 hue=0.08,
             ),
-            VideoToNumpy(apply_to=self.video_keys),
+            VideoToNumpy(apply_to=self.video_keys + self.next_video_keys),
             # state transforms
-            StateActionToTensor(apply_to=self.state_keys),
+            StateActionToTensor(apply_to=self.state_keys + self.next_state_keys),
             StateActionTransform(
-                apply_to=self.state_keys,
+                apply_to=self.state_keys + self.next_state_keys,
                 normalization_modes={
                     "state.end_effector_position_relative": "min_max",
                     "state.end_effector_rotation_relative": "min_max",
@@ -986,9 +1012,11 @@ class SinglePandaGripperRLDataConfig(BaseDataConfig):
                 },
             ),
             # concat transforms
-            ConcatTransform(
+            RLConcatTransform(
                 video_concat_order=self.video_keys,
                 state_concat_order=self.state_keys,
+                next_video_concat_order=self.next_video_keys,
+                next_state_concat_order=self.next_state_keys,
                 action_concat_order=self.action_keys,
             ),
             GR00TTransform(
@@ -1011,6 +1039,7 @@ DATA_CONFIG_MAP = {
     "bimanual_panda_gripper": BimanualPandaGripperDataConfig(),
     "bimanual_panda_hand": BimanualPandaHandDataConfig(),
     "single_panda_gripper": SinglePandaGripperDataConfig(),
+    "single_panda_gripper_rl": SinglePandaGripperRLDataConfig(),
     "so100": So100DataConfig(),
     "so100_dualcam": So100DualCamDataConfig(),
     "unitree_g1": UnitreeG1DataConfig(),

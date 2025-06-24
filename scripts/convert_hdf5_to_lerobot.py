@@ -88,6 +88,11 @@ def write_info(info: dict, output_dir: Path) -> None:
     write_json(info, output_dir / "meta" / "info.json")
 
 
+def write_modality_json(modality_config: dict, output_dir: Path) -> None:
+    """Write modality data to modality.json."""
+    write_json(modality_config, output_dir / "meta" / "modality.json")
+
+
 def encode_video_frames(
     frames: np.ndarray,
     output_path: Union[Path, str],
@@ -218,7 +223,8 @@ class RelobotFormatter:
 
         # Create output directory structure
         self._setup_output_dirs()
-        self._copy_meta_files(meta_path)
+        self.meta_path = Path(meta_path)
+        self._copy_meta_files()
         self._init_paths()
 
     def _setup_output_dirs(self):
@@ -227,10 +233,19 @@ class RelobotFormatter:
         for folder in ["meta", "data", "videos"]:
             (self.root / folder).mkdir(exist_ok=True)
 
-    def _copy_meta_files(self, meta_path: str):
+    def _copy_meta_files(self):
         """Copy metadata files."""
-        for meta_file in ["modality.json", "info.json"]:
-            shutil.copy(Path(meta_path) / meta_file, self.root / "meta" / meta_file)
+        shutil.copy(self.meta_path / "info.json", self.root / "meta" / "info.json")
+        modality_config = json.load(open(self.meta_path / "modality.json"))
+        # update modality config w/ rewards and done keys
+        modality_config["reward"] = {
+            "next.reward": {}
+        }
+        modality_config["done"] = {
+            "next.done": {}
+        }
+        write_modality_json(modality_config, self.root / "meta")
+
         self.load_info_file()
 
     def _init_paths(self):
@@ -456,7 +471,7 @@ if __name__ == "__main__":
     parser.add_argument("--src_hdf5_path", type=str, required=True)
     parser.add_argument("--output_path", type=str, required=True)
     parser.add_argument("--task_name", type=str, required=True)
-    parser.add_argument("--chunks_size", type=int, default=300, required=True)
+    parser.add_argument("--chunks_size", type=int, default=300)
     parser.add_argument("--meta_path", type=str, default="meta/info.json")
     parser.add_argument("--num_demos", type=int, default=None)
     args = parser.parse_args()
