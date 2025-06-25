@@ -458,10 +458,10 @@ class RelobotFormatter:
 
         return video_paths
 
-    def convert_hdf5_to_relobot_format(self, num_demos: Optional[int] = None):
+    def convert_hdf5_to_relobot_format(self, num_episodes: Optional[int] = None):
         """Convert all episodes from HDF5 to RoboLab format."""
         demo_list = sorted(self.src_data.keys(), key=lambda x: int(x.split("_")[-1]))
-        for demo_idx in tqdm(demo_list[:num_demos]):
+        for demo_idx in tqdm(demo_list[:num_episodes]):
             demo = self.src_data[demo_idx]
             self.convert_episode_to_relobot_format(demo)
 
@@ -473,7 +473,7 @@ if __name__ == "__main__":
     parser.add_argument("--task_name", type=str, required=True)
     parser.add_argument("--chunks_size", type=int, default=300)
     parser.add_argument("--meta_path", type=str, default="meta/info.json")
-    parser.add_argument("--num_demos", type=int, default=None)
+    parser.add_argument("--num_episodes", type=int, default=None)
     args = parser.parse_args()
 
     formatter = RelobotFormatter(
@@ -483,4 +483,4 @@ if __name__ == "__main__":
         src_hdf5_path=args.src_hdf5_path,
         meta_path=args.meta_path,
     )
-    formatter.convert_hdf5_to_relobot_format(args.num_demos)
+    formatter.convert_hdf5_to_relobot_format(args.num_episodes)
