@@ -34,14 +34,14 @@ python scripts/eval_policy_robocasa.py \
     --model_path ~/gr00t_n1_5_ckpt/step${STEPS}_${TASK_NAME}_num${NUM_DEMOS}_single_panda_gripper/checkpoint-${CHECKPOINT} \
     --env_name ${TASK_NAME} \
     --num_episodes ${NUM_EPISODES} \
-    --video_path ./evaluation/groot_n1_5_${TASK_NAME}_${MODEL_KEY}_as${ACTION_HORIZON}/videos \
+    --video_path ./evaluation/groot_n1_5/${TASK_NAME}_num${NUM_EPISODES}_${MODEL_KEY}_as${ACTION_HORIZON}/videos \
     --collect_data=True \
-    --data_collection_path ./evaluation/groot_n1_5_${TASK_NAME}_${MODEL_KEY}_as${ACTION_HORIZON}/data \
+    --data_collection_path ./evaluation/groot_n1_5/${TASK_NAME}_num${NUM_EPISODES}_${MODEL_KEY}_as${ACTION_HORIZON}/data \
     --generative_textures
 
 cd /home/changyeon/workspace/robocasa
 OMP_NUM_THREADS=1 MPI_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python robocasa/scripts/dataset_states_to_obs.py \
-    --dataset /home/changyeon/workspace/Isaac-GR00T/evaluation/groot_n1_5_${TASK_NAME}_${MODEL_KEY}_as${ACTION_HORIZON}/data/demo.hdf5 \
+    --dataset /home/changyeon/workspace/Isaac-GR00T/evaluation/groot_n1_5/${TASK_NAME}_num${NUM_EPISODES}_${MODEL_KEY}_as${ACTION_HORIZON}/data/demo.hdf5 \
     --camera_width 256 \
     --camera_height 256 \
     --generative_textures \
@@ -51,8 +51,8 @@ OMP_NUM_THREADS=1 MPI_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 pyt
 
 cd /home/changyeon/workspace/Isaac-GR00T
 python scripts/convert_hdf5_to_lerobot.py \
-    --src_hdf5_path ./evaluation/groot_n1_5_${TASK_NAME}_${MODEL_KEY}_as${ACTION_HORIZON}/data/demo_gentex_im256_randcams.hdf5 \
-    --output_path /home/changyeon/robocasa_dataset/rollouts/${TASK_NAME}_num${NUM_EPISODES} \
+    --src_hdf5_path ./evaluation/groot_n1_5/${TASK_NAME}_num${NUM_EPISODES}_${MODEL_KEY}_as${ACTION_HORIZON}/data/demo_gentex_im256_randcams.hdf5 \
+    --output_path /home/changyeon/robocasa_dataset/rollouts/gr00t_n1_5/${TASK_NAME}_num${NUM_EPISODES} \
     --task_name $TASK_NAME \
     --chunks_size 300 \
     --num_episodes ${NUM_EPISODES} \
