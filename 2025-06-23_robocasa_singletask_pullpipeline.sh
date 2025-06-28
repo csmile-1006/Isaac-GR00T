@@ -16,7 +16,6 @@ MODEL_KEY=$5
 ACTION_HORIZON=$6
 NUM_EPISODES=200
 
-echo "NUM_DEMOS: ${NUM_DEMOS}"
 echo "TASK_NAME: ${TASK_NAME}"
 echo "STEPS: ${STEPS}"
 echo "CHECKPOINT: ${CHECKPOINT}"
@@ -31,14 +30,12 @@ python scripts/eval_policy_robocasa.py \
     --port 5555 \
     --data_config single_panda_gripper \
     --action_horizon ${ACTION_HORIZON} \
-    --video_backend decord \
-    --dataset_path ~/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/ \
     --embodiment_tag new_embodiment \
     --model_path ~/gr00t_n1_5_ckpt/step${STEPS}_${TASK_NAME}_num${NUM_DEMOS}_single_panda_gripper/checkpoint-${CHECKPOINT} \
     --env_name ${TASK_NAME} \
     --num_episodes ${NUM_EPISODES} \
-    --max_episode_steps 500 \
     --video_path ./evaluation/groot_n1_5_${TASK_NAME}_${MODEL_KEY}_as${ACTION_HORIZON}/videos \
+    --collect_data=True \
     --data_collection_path ./evaluation/groot_n1_5_${TASK_NAME}_${MODEL_KEY}_as${ACTION_HORIZON}/data \
     --generative_textures
 
@@ -49,7 +46,8 @@ OMP_NUM_THREADS=1 MPI_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 pyt
     --camera_height 256 \
     --generative_textures \
     --randomize_cameras \
-    --shaped --copy_rewards
+    --shaped --copy_rewards \
+    --copy_dones --num_procs 1 
 
 cd /home/changyeon/workspace/Isaac-GR00T
 python scripts/convert_hdf5_to_lerobot.py \

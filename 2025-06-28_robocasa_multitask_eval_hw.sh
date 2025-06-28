@@ -58,5 +58,5 @@ for TASK_NAME in ${TASK_NAMES[@]}; do
         --generative_textures
     "
     echo $CMD
-    # eval $CMD
+    eval $CMD
 done
