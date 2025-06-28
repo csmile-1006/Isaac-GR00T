@@ -2,7 +2,8 @@ from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
-from robocasa.utils.env_utils import create_env
+import robosuite
+from robosuite.controllers import load_composite_controller_config
 from robosuite.wrappers import GymWrapper
 
 from gr00t.eval.wrappers.data_collection_wrapper import DataCollectionWrapper
@@ -11,22 +12,64 @@ from gr00t.eval.wrappers.data_collection_wrapper import DataCollectionWrapper
 def load_robocasa_gym_env(
     env_name,
     seed=None,
-    generative_textures: str = None,
-    directory: Path = None,
+    # robosuite-related configs
+    robots="PandaOmron",
+    camera_names=[
+        "robot0_agentview_left",
+        "robot0_agentview_right",
+        "robot0_eye_in_hand",
+    ],
+    camera_widths=256,
+    camera_heights=256,
+    render_onscreen=False,
+    # robocasa-related configs
+    obj_instance_split=None,
+    generative_textures=None,
+    randomize_cameras=False,
+    layout_and_style_ids=None,
+    layout_ids=None,
+    style_ids=None,
+    # data collection configs
+    collect_data: bool = False,
+    collect_directory: Path = None,
     collect_freq: int = 1,
     flush_freq: int = 100,
 ):
-    env = create_env(
-        env_name=env_name,
-        render_onscreen=False,
-        seed=seed,  # set seed=None to run unseeded
-        camera_widths=256,
-        camera_heights=256,
-        generative_textures=generative_textures,
+    controller_config = load_composite_controller_config(
+        controller=None,
+        robot=robots if isinstance(robots, str) else robots[0],
     )
-    if directory is not None and directory.exists():
-        directory.mkdir(parents=True, exist_ok=True)
-    env = DataCollectionWrapper(env, directory, collect_freq=collect_freq, flush_freq=flush_freq)
+
+    env_kwargs = dict(
+        env_name=env_name,
+        robots=robots,
+        controller_configs=controller_config,
+        camera_names=camera_names,
+        camera_widths=camera_widths,
+        camera_heights=camera_heights,
+        has_renderer=render_onscreen,
+        has_offscreen_renderer=(not render_onscreen),
+        ignore_done=False,
+        use_object_obs=True,
+        use_camera_obs=(not render_onscreen),
+        camera_depths=False,
+        seed=seed,
+        obj_instance_split=obj_instance_split,
+        generative_textures=generative_textures,
+        randomize_cameras=randomize_cameras,
+        layout_and_style_ids=layout_and_style_ids,
+        layout_ids=layout_ids,
+        style_ids=style_ids,
+        translucent_robot=False,
+    )
+
+    env = robosuite.make(**env_kwargs)
+
+    if collect_data:
+        if collect_directory is not None and collect_directory.exists():
+            collect_directory.mkdir(parents=True, exist_ok=True)
+        env = DataCollectionWrapper(env, collect_directory, collect_freq=collect_freq, flush_freq=flush_freq)
+
     env = GymWrapper(
         env,
         flatten_obs=False,

@@ -27,12 +27,10 @@ import mujoco
 import numpy as np
 import robocasa
 import robosuite
-from gymnasium.wrappers import TimeLimit
 from robosuite.controllers import load_composite_controller_config
 from tqdm import tqdm, trange
 from robocasa.utils.robomimic.robomimic_dataset_utils import convert_to_robomimic_format
 
-from gr00t.data.dataset import LeRobotSingleDataset
 from gr00t.eval.robot import RobotInferenceClient
 from gr00t.eval.wrappers.multistep_wrapper import MultiStepWrapper
 from gr00t.eval.wrappers.record_video import RecordVideo
@@ -186,8 +184,6 @@ Example command:
 
 python scripts/eval_policy_robocasa.py --host localhost --port 5555
     --action_horizon 16
-    --video_backend decord
-    --dataset_path demo_data/robot_sim.PickNPlace/
     --embodiment_tag gr1
     --data_config gr1_arms_waist
     --env_name CloseDrawer
@@ -207,8 +203,6 @@ if __name__ == "__main__":
         help="data config name",
     )
     parser.add_argument("--action_horizon", type=int, default=16)
-    parser.add_argument("--video_backend", type=str, default="decord")
-    parser.add_argument("--dataset_path", type=str, default="demo_data/robot_sim.PickNPlace/")
     parser.add_argument(
         "--embodiment_tag",
         type=str,
@@ -249,18 +243,13 @@ if __name__ == "__main__":
         help="Number of episodes to run",
     )
     parser.add_argument(
-        "--max_episode_steps",
-        type=int,
-        default=300,
-        help="Maximum number of steps per episode",
-    )
-    parser.add_argument(
         "--video_path",
         type=str,
         default=None,
         help="Path to save the video",
     )
 
+    # Robocasa env parameters
     parser.add_argument(
         "--controller",
         type=str,
@@ -293,17 +282,26 @@ if __name__ == "__main__":
         default=None,
         help="In kitchen environments, either the name of a group to sample object from or path to an .xml file",
     )
+
+    parser.add_argument("--layout", type=int, nargs="+", default=-1)
+    parser.add_argument(
+        "--style", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6, 7, 8, 11]
+    )
+    parser.add_argument("--generative_textures", action="store_true", help="Use generative textures")
+
+    # Data collection parameters
+    parser.add_argument(
+        "--collect_data",
+        type=bool,
+        default=False,
+        help="Whether to collect data",
+    )
     parser.add_argument(
         "--data_collection_path",
         type=str,
         default=None,
         help="Path to save the data collection",
     )
-    parser.add_argument("--layout", type=int, nargs="+", default=-1)
-    parser.add_argument(
-        "--style", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6, 7, 8, 11]
-    )
-    parser.add_argument("--generative_textures", action="store_true", help="Use generative textures")
 
     args = parser.parse_args()
 
@@ -332,34 +330,8 @@ if __name__ == "__main__":
     modality = policy.get_modality_config()
     print(modality)
 
-    # Create the dataset
-    dataset = LeRobotSingleDataset(
-        dataset_path=args.dataset_path,
-        modality_configs=modality,
-        video_backend=args.video_backend,
-        video_backend_kwargs=None,
-        transforms=None,  # We'll handle transforms separately through the policy
-        embodiment_tag=args.embodiment_tag,
-    )
 
-    print(len(dataset))
-    # Make a prediction
-    obs = dataset[0]
-    for k, v in obs.items():
-        if isinstance(v, np.ndarray):
-            print(k, v.shape)
-        else:
-            print(k, v)
-
-    for k, v in dataset.get_step_data(0, 0).items():
-        if isinstance(v, np.ndarray):
-            print(k, v.shape)
-        else:
-            print(k, v)
-
-    print("Total trajectories:", len(dataset.trajectory_lengths))
-    print("All trajectories:", dataset.trajectory_lengths)
-
+    # ROBOCASA ENV SETUP
     # load robocasa env
     controller_config = load_composite_controller_config(
         controller=args.controller,
@@ -392,8 +364,6 @@ if __name__ == "__main__":
         if args.obj_groups is not None:
             config.update({"obj_groups": args.obj_groups})
 
-        config["translucent_robot"] = True
-
         # by default use obj instance split A
         config["obj_instance_split"] = "A"
         # config["obj_instance_split"] = None
@@ -405,11 +375,22 @@ if __name__ == "__main__":
     env = load_robocasa_gym_env(
         args.env_name,
         seed=args.seed,
-        directory=Path(args.data_collection_path),
+        # robosuite-related configs
+        robots=args.robots,
+        camera_widths=256,
+        camera_heights=256,
+        render_onscreen=False,
+        # robocasa-related configs
+        obj_instance_split="A",
         generative_textures="100p" if args.generative_textures else None,
+        randomize_cameras=False,
+        layout_ids=args.layout,
+        style_ids=args.style,
+        # data collection configs
+        collect_data=args.collect_data,
+        collect_directory=Path(args.data_collection_path),
     )
     env = RoboCasaWrapper(env)
-    env = TimeLimit(env, max_episode_steps=args.max_episode_steps)
     record_video = args.video_path is not None
     if record_video:
         video_base_path = Path(args.video_path)
