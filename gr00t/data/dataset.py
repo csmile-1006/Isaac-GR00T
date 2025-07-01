@@ -326,7 +326,8 @@ class LeRobotSingleDataset(Dataset):
             simplified_modality_meta["reward"] = {
                 "shape": [1],
                 "dtype": "float64",
-                "discount": 0.999,
+                "discount": 0.8, # refer to discount factor for options framework.
+                "negative_reward": True,
             }
             simplified_modality_meta["done"] = {
                 "shape": [1],
@@ -367,7 +368,7 @@ class LeRobotSingleDataset(Dataset):
         # 3. Next state and video modalities: same as state and video modalities
         if self.use_rl:
             simplified_modality_meta["next_state"] = simplified_modality_meta["state"]
-            simplified_modality_meta["next_video"] = simplified_modality_meta["video"]
+            # simplified_modality_meta["next_video"] = simplified_modality_meta["video"]
 
         # 4. Full dataset metadata
         if self.use_rl:
@@ -814,11 +815,11 @@ class LeRobotSingleDataset(Dataset):
             padding_strategy="zero",
         )
 
-        reward_or_done_cfg = getattr(self.metadata.modalities, modality)[key]
-        discount = reward_or_done_cfg.get("discount", 0.999)
-
         if modality == "reward":
-            discounts = discount ** np.arange(seq_len)
+            reward_cfg = getattr(self.metadata.modalities, modality)
+            if reward_cfg.negative_reward:
+                data -= 1 # convert the reward scale from [0,1] to [-1,0]
+            discounts = reward_cfg.discount ** np.arange(seq_len)
             output = (data * discounts).sum()
 
         if modality == "done":
@@ -889,13 +890,9 @@ class LeRobotSingleDataset(Dataset):
             key (str): The key of the data.
             base_index (int): The base index of the trajectory.
         """
-        if modality == "video":
+        if modality in ["video", "next_video"]:
             return self.get_video(trajectory_id, modality, key, base_index)
-        elif modality == "next_video":
-            return self.get_video(trajectory_id, modality, key, base_index)
-        elif modality == "next_state":
-            return self.get_state_or_action(trajectory_id, modality, key, base_index)
-        elif modality == "state" or modality == "action":
+        elif modality in ["state", "next_state", "action"]:
             return self.get_state_or_action(trajectory_id, modality, key, base_index)
         elif modality == "reward" or modality == "done":
             return self.get_reward_or_done(trajectory_id, modality, key, base_index)

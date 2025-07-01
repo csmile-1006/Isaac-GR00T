@@ -30,6 +30,7 @@ import robosuite
 from robosuite.controllers import load_composite_controller_config
 from tqdm import tqdm, trange
 from robocasa.utils.robomimic.robomimic_dataset_utils import convert_to_robomimic_format
+from robocasa.utils.dataset_registry import SINGLE_STAGE_TASK_DATASETS, MULTI_STAGE_TASK_DATASETS
 
 from gr00t.eval.robot import RobotInferenceClient
 from gr00t.eval.wrappers.multistep_wrapper import MultiStepWrapper
@@ -39,6 +40,16 @@ from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.model.policy import BasePolicy, Gr00tPolicy
 
 warnings.simplefilter("ignore", category=FutureWarning)
+
+
+def get_env_horizon(env_name):
+    if env_name in SINGLE_STAGE_TASK_DATASETS:
+        ds_config = SINGLE_STAGE_TASK_DATASETS[env_name]
+    elif env_name in MULTI_STAGE_TASK_DATASETS:
+        ds_config = MULTI_STAGE_TASK_DATASETS[env_name]
+    else:
+        raise ValueError(f"Environment {env_name} not found in dataset registry")
+    return ds_config["horizon"]
 
 
 def add_to(dict_of_lists, single_dict):
@@ -404,6 +415,7 @@ if __name__ == "__main__":
         state_delta_indices=np.arange(1),
         n_action_steps=args.action_horizon,
     )
+    env_horizon = get_env_horizon(env_name)
 
     # postprocess function of action, to handle the case where number of dimensions are not the same
     def postprocess_action(action):
@@ -419,7 +431,7 @@ if __name__ == "__main__":
     stats = defaultdict(list)
     for i in trange(args.num_episodes):
         pbar = tqdm(
-            total=args.max_episode_steps, desc=f"Episode {i + 1} / {env.unwrapped.get_ep_meta()['lang']}", leave=False
+            total=env_horizon, desc=f"Episode {i + 1} / {env.unwrapped.get_ep_meta()['lang']}", leave=False
         )
         obs, info = env.reset()
         done = False
