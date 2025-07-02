@@ -27,6 +27,7 @@ import mujoco
 import numpy as np
 import robocasa
 import robosuite
+from gymnasium.wrappers import TimeLimit
 from robosuite.controllers import load_composite_controller_config
 from tqdm import tqdm, trange
 from robocasa.utils.robomimic.robomimic_dataset_utils import convert_to_robomimic_format
@@ -409,13 +410,14 @@ if __name__ == "__main__":
         episode_trigger = lambda t: t % 1 == 0  # noqa
         env = RecordVideo(env, video_base_path, disable_logger=True, episode_trigger=episode_trigger, fps=20)
 
+    env_horizon = get_env_horizon(env_name)
+    env = TimeLimit(env, max_episode_steps=env_horizon)
     env = MultiStepWrapper(
         env,
         video_delta_indices=np.arange(1),
         state_delta_indices=np.arange(1),
         n_action_steps=args.action_horizon,
     )
-    env_horizon = get_env_horizon(env_name)
 
     # postprocess function of action, to handle the case where number of dimensions are not the same
     def postprocess_action(action):

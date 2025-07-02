@@ -2,6 +2,7 @@ from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
+import robocasa  # noqa
 import robosuite
 from robosuite.controllers import load_composite_controller_config
 from robosuite.wrappers import GymWrapper
@@ -160,13 +161,8 @@ class RoboCasaWrapper(gym.Wrapper):
 
     def reset(self, seed=None, options=None):
         obs, info = super().reset(seed=seed, options=options)
-        new_obs = {}
-        for key, value in obs.items():
-            if key in self._robocasa_keys_to_gr00t_keys:
-                new_obs[self._robocasa_keys_to_gr00t_keys[key]] = value
-        new_obs["annotation.human.action.task_description"] = [self.language_instruction]
         info["is_success"] = self.is_success()["task"]
-        return new_obs, info
+        return self.convert_observation(obs), info
 
     def render(self, mode="rgb_array"):
         return self.env.unwrapped.sim.render(camera_name="robot0_agentview_center", height=512, width=512)[::-1]
@@ -183,6 +179,17 @@ class RoboCasaWrapper(gym.Wrapper):
             return succ
         return {"task": succ}
 
+    def convert_observation(self, obs):
+        new_obs = {}
+        for key, value in obs.items():
+            if key in self._robocasa_keys_to_gr00t_keys:
+                new_obs[self._robocasa_keys_to_gr00t_keys[key]] = value
+        new_obs["annotation.human.action.task_description"] = [self.language_instruction]
+        for key in new_obs.keys():
+            if key.startswith("video"):
+                new_obs[key] = np.flip(new_obs[key], axis=[0])
+        return new_obs
+
     def convert_action(self, action):
         # binarize the gripper close and control mode action
         for key in ["action.gripper_close", "action.control_mode"]:
@@ -195,14 +202,9 @@ class RoboCasaWrapper(gym.Wrapper):
     def step(self, action):
         action = self.convert_action(action)
         obs, reward, terminated, truncated, info = super().step(action)
-        new_obs = {}
-        for key, value in obs.items():
-            if key in self._robocasa_keys_to_gr00t_keys:
-                new_obs[self._robocasa_keys_to_gr00t_keys[key]] = value
-        new_obs["annotation.human.action.task_description"] = [self.language_instruction]
         info["is_success"] = self.is_success()["task"]
         terminated = terminated or info["is_success"]
-        return new_obs, reward, terminated, truncated, info
+        return self.convert_observation(obs), reward, terminated, truncated, info
 
     def close(self):
         return self.env.close()
@@ -211,7 +213,7 @@ class RoboCasaWrapper(gym.Wrapper):
 if __name__ == "__main__":
     env_name = "PnPCounterToMicrowave"
 
-    env = load_robocasa_gym_env(env_name, directory=Path("./tmp_data/"), collect_freq=1, flush_freq=1)
+    env = load_robocasa_gym_env(env_name)
     env = RoboCasaWrapper(env)
 
     obs, _ = env.reset()
