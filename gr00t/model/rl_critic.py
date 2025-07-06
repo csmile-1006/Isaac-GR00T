@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -23,6 +24,7 @@ from huggingface_hub.errors import HFValidationError, RepositoryNotFoundError
 from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 
+# from .backbone import EagleBackbone
 from .critic.critic import Critic, CriticConfig
 from .gr00t_n1 import GR00T_N1_5
 
@@ -36,6 +38,7 @@ N_COLOR_CHANNELS = 3
 class RL_Critic_Config(PretrainedConfig):
     model_type = "rl_critic"
 
+    # backbone_cfg: dict = field(init=False, metadata={"help": "Backbone configuration."})
     critic_cfg: dict = field(init=False, metadata={"help": "Critic configuration."})
     action_horizon: int = field(default=16, metadata={"help": "Action horizon."})
 
@@ -65,9 +68,13 @@ class RL_Critic(PreTrainedModel):
         config: RL_Critic_Config,
         local_model_path: str,
     ):
+        # assert isinstance(config.backbone_cfg, dict)
+        assert isinstance(config.critic_cfg, dict)
+
         super().__init__(config)
         self.local_model_path = local_model_path
 
+        # self.backbone = EagleBackbone(**config.backbone_cfg)
         critic_cfg = CriticConfig(**config.critic_cfg)
         self.critic = Critic(critic_cfg)
 
@@ -128,13 +135,16 @@ class RL_Critic(PreTrainedModel):
         self,
         inputs: dict,
     ) -> BatchFeature:
+        # backbone_inputs, critic_inputs = self.prepare_input(inputs)
+        # backbone_outputs = self.backbone(backbone_inputs)
         critic_inputs = self.prepare_input(inputs)
         critic_outputs = self.critic(critic_inputs)
         self.validate_data(critic_outputs, is_training=True)
         return critic_outputs
 
-    def prepare_input(self, inputs) -> BatchFeature:
+    def prepare_input(self, inputs) -> Tuple[BatchFeature, BatchFeature]:
         self.validate_inputs(inputs)
+        # backbone_inputs = self.backbone.prepare_input(inputs)
         critic_inputs = self.critic.prepare_input(inputs)
 
         def to_device_with_maybe_dtype(x):
@@ -145,11 +155,14 @@ class RL_Critic(PreTrainedModel):
                 # Keep original dtype
                 return x.to(self.device)
 
+        # backbone_inputs = tree.map_structure(to_device_with_maybe_dtype, backbone_inputs)
         critic_inputs = tree.map_structure(to_device_with_maybe_dtype, critic_inputs)
         return critic_inputs
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path: str, from_gr00t_n1_5: bool = False, **kwargs):
+        # tune_visual = kwargs.pop("tune_visual", True)
+        # tune_llm = kwargs.pop("tune_llm", False)
         tune_projector = kwargs.pop("tune_projector", True)
 
         print(f"Loading pretrained dual brain from {pretrained_model_name_or_path}")
@@ -179,12 +192,14 @@ class RL_Critic(PreTrainedModel):
             new_cfg = RL_Critic_Config()
             pretrained_gr00t_n1_5_cfg = pretrained_gr00t_n1_5.config
 
-            new_cfg.action_horizon = pretrained_gr00t_n1_5_cfg.action_horizon
+            # new_cfg.backbone_cfg = pretrained_gr00t_n1_5_cfg.backbone_cfg
+            # new_cfg.action_horizon = pretrained_gr00t_n1_5_cfg.action_horizon
             new_cfg.action_dim = pretrained_gr00t_n1_5_cfg.action_dim
             new_cfg.compute_dtype = pretrained_gr00t_n1_5_cfg.compute_dtype
 
             critic_cfg = CriticConfig(
                 input_embedding_dim=pretrained_gr00t_n1_5_cfg.action_head_cfg["input_embedding_dim"],
+                # backbone_embedding_dim=pretrained_gr00t_n1_5_cfg.action_head_cfg["backbone_embedding_dim"],
                 hidden_size=pretrained_gr00t_n1_5_cfg.action_head_cfg["hidden_size"],
                 depth=3,
                 add_final_layer=True,
@@ -192,6 +207,8 @@ class RL_Critic(PreTrainedModel):
                 action_dim=pretrained_gr00t_n1_5_cfg.action_dim,
                 action_horizon=pretrained_gr00t_n1_5_cfg.action_horizon,
                 max_state_dim=pretrained_gr00t_n1_5_cfg.action_head_cfg["max_state_dim"],
+                # use_vlln=pretrained_gr00t_n1_5_cfg.action_head_cfg["use_vlln"],
+                # vl_self_attention_cfg=pretrained_gr00t_n1_5_cfg.action_head_cfg["vl_self_attention_cfg"],
             )
 
             new_cfg.critic_cfg = critic_cfg.to_dict()
@@ -202,17 +219,18 @@ class RL_Critic(PreTrainedModel):
                 local_model_path=pretrained_gr00t_n1_5.local_model_path,
             )
 
+            # print("Loading backbone parameters")
+            # pretrained_model.backbone.load_state_dict(pretrained_gr00t_n1_5.backbone.state_dict())
+
             # Transfer parameters from pretrained GR00T_N1_5 model
 
             with torch.no_grad():
                 pretrained_model.critic.state_encoder.load_state_dict(
                     pretrained_gr00t_n1_5.action_head.state_encoder.state_dict()
                 )
-                pretrained_model.critic.action_encoder.load_state_dict(
-                    pretrained_gr00t_n1_5.action_head.action_encoder.state_dict()
-                )
 
             # Set trainable parameters according to flags
+            # pretrained_model.backbone.set_trainable_parameters(tune_visual=tune_visual, tune_llm=tune_llm)
             pretrained_model.critic.set_trainable_parameters(tune_projector=tune_projector)
 
             del pretrained_gr00t_n1_5

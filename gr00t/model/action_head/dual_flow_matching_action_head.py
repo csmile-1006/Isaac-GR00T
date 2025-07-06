@@ -220,6 +220,7 @@ class DualFlowmatchingActionHeadConfig(PretrainedConfig):
     nstep: int = field(default=1, metadata={"help": "Number of steps for reward."})
     normalize_q: bool = field(default=False, metadata={"help": "Whether to normalize the Q-value."})
     alpha: float = field(default=10.0, metadata={"help": "Alpha for actor loss."})
+    tau: float = field(default=0.005, metadata={"help": "Tau for polyak update."})
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

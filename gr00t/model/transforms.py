@@ -425,7 +425,7 @@ class GR00TRLTransform(GR00TTransform):
         Gathers final state from data['state'], then pads to max_state_dim.
         Return (state, state_mask, n_state_tokens).
         """
-        if "state" not in data:
+        if "state" not in data or "next_state" not in data:
             state = np.zeros((self.state_horizon, self.max_state_dim))
             state_mask = np.zeros((self.state_horizon, self.max_state_dim), dtype=bool)
             n_state_tokens = self.state_horizon
@@ -521,7 +521,7 @@ class GR00TRLStateTransform(GR00TTransform):
         Gathers final state from data['state'], then pads to max_state_dim.
         Return (state, state_mask, n_state_tokens).
         """
-        if "state" not in data:
+        if "state" not in data or "next_state" not in data:
             state = np.zeros((self.state_horizon, self.max_state_dim))
             state_mask = np.zeros((self.state_horizon, self.max_state_dim), dtype=bool)
             n_state_tokens = self.state_horizon

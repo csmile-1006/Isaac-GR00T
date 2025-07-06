@@ -17,6 +17,7 @@ import shutil
 from pathlib import Path
 
 import torch
+import torch.nn as nn
 from transformers import Trainer, TrainerCallback
 
 
@@ -60,3 +61,15 @@ class CheckpointFormatCallback(TrainerCallback):
                 exp_cfg_dst = checkpoint_dir / self.exp_cfg_dir.name
                 if self.exp_cfg_dir.exists():
                     shutil.copytree(self.exp_cfg_dir, exp_cfg_dst, dirs_exist_ok=True)
+
+
+class PolyakUpdateCallback(TrainerCallback):
+    def __init__(self, target_model: nn.Module, source_model: nn.Module, tau: float = 0.005):
+        self.target = target_model
+        self.source = source_model
+        self.tau = tau
+
+    def on_step_end(self, args, state, control, **kwargs):
+        for tp, sp in zip(self.target.parameters(), self.source.parameters()):
+            tp.data.copy_(self.tau * sp.data + (1 - self.tau) * tp.data)
+        return control

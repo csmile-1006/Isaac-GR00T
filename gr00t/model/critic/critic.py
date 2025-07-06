@@ -24,15 +24,9 @@ from transformers.feature_extraction_utils import BatchFeature
 from gr00t.model.action_head.flow_matching_action_head import (
     CategorySpecificLinear,
     CategorySpecificMLP,
-    MultiEmbodimentActionEncoder,
     swish,
 )
-
-
-def expectile_loss(adv, diff, expectile):
-    """Compute the expectile loss."""
-    weight = torch.where(adv >= 0, expectile, (1 - expectile))
-    return weight * (diff**2)
+# from gr00t.model.action_head.cross_attention_dit import SelfAttentionTransformer
 
 
 class BroNet(torch.nn.Module):
@@ -168,6 +162,7 @@ class MultiEmbodimentActionCriticEncoder(nn.Module):
 @dataclass
 class CriticConfig(PretrainedConfig):
     input_embedding_dim: int = field(default=1536, metadata={"help": "Input embedding dimension."})
+    # backbone_embedding_dim: int = field(default=1536, metadata={"help": "Backbone embedding dimension."})
     hidden_size: int = field(default=1024, metadata={"help": "Hidden dimension."})
     depth: int = field(default=2, metadata={"help": "Depth of the network."})
     add_final_layer: bool = field(default=True, metadata={"help": "Whether to add a final layer."})
@@ -184,6 +179,11 @@ class CriticConfig(PretrainedConfig):
     nstep: int = field(default=1, metadata={"help": "Number of steps for reward."})
     normalize_q: bool = field(default=False, metadata={"help": "Whether to normalize the Q-value."})
     alpha: float = field(default=10.0, metadata={"help": "Alpha for actor loss."})
+    tau: float = field(default=0.005, metadata={"help": "Tau for target critic update."})
+
+    # # VLLN parameters
+    # use_vlln: bool = field(default=True, metadata={"help": "Whether to use VLLN."})
+    # vl_self_attention_cfg: dict = field(default=None, metadata={"help": "VLLN self attention configuration."})
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -212,16 +212,20 @@ class Critic(nn.Module):
             hidden_dim=self.hidden_size,
             output_dim=self.input_embedding_dim,
         )
-        self.action_encoder = MultiEmbodimentActionEncoder(
-            action_dim=config.action_dim,
-            hidden_size=self.input_embedding_dim,
-            num_embodiments=config.max_num_embodiments,
-        )
         self.critic_action_encoder = MultiEmbodimentActionCriticEncoder(
             action_dim=config.action_dim,
             hidden_size=self.input_embedding_dim,
             num_embodiments=config.max_num_embodiments,
         )
+
+        # self.vlln = (
+        #     nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
+        # )
+        # self.vl_self_attention = (
+        #     SelfAttentionTransformer(**config.vl_self_attention_cfg)
+        #     if config.use_vlln
+        #     else nn.Identity()
+        # )
 
         self.value = Value(
             input_dim=self.input_embedding_dim,
@@ -244,13 +248,18 @@ class Critic(nn.Module):
 
         self.config = config
 
+    @staticmethod
+    def expectile_loss(adv, diff, expectile):
+        """Compute the expectile loss."""
+        weight = torch.where(adv >= 0, expectile, (1 - expectile))
+        return torch.mean(weight * (diff**2))
+
     def set_trainable_parameters(self, tune_projector: bool):
         self.tune_projector = tune_projector
         for p in self.parameters():
             p.requires_grad = True
         if not tune_projector:
             self.state_encoder.requires_grad_(False)
-            self.action_encoder.requires_grad_(False)
         print(f"Tune action head projector: {self.tune_projector}")
         # Check if any parameters are still trainable. If not, print a warning.
         if not self.tune_projector:
@@ -269,14 +278,24 @@ class Critic(nn.Module):
         if self.training:
             if not self.tune_projector:
                 self.state_encoder.eval()
-                self.action_encoder.eval()
 
     def prepare_input(self, batch: dict) -> BatchFeature:
         return BatchFeature(data=batch)
 
+    # def process_backbone_output(self, backbone_output: BatchFeature) -> BatchFeature:
+    #     backbone_features = backbone_output["backbone_features"]
+    #     backbone_features = self.vlln(backbone_features)
+    #     backbone_features = self.vl_self_attention(backbone_features)
+    #     backbone_output["backbone_features"] = backbone_features
+    #     return backbone_output
+
     def forward(self, action_input: BatchFeature) -> BatchFeature:
         # Set frozen modules to eval
         self.set_frozen_modules_to_eval_mode()
+
+        # backbone_output = self.process_backbone_output(backbone_output)
+
+        # vl_embeds = backbone_output.backbone_features
 
         # Get vision and language embeddings.
         embodiment_id = action_input.embodiment_id
@@ -285,7 +304,7 @@ class Critic(nn.Module):
         state_features = self.state_encoder(action_input.state, embodiment_id)
         action_critic_features = self.critic_action_encoder(action_input.action, embodiment_id)
 
-        # Critic loss 1) Value loss
+        # Critic loss 1) value loss
         with torch.no_grad():
             q1, q2 = self.target_critic(state_features, action_critic_features)
             if self.config.q_agg == "min":
@@ -294,7 +313,7 @@ class Critic(nn.Module):
                 q = (q1 + q2) / 2
 
         v = self.value(state_features)
-        value_loss = expectile_loss(q - v, q - v, self.config.expectile).mean()
+        value_loss = self.expectile_loss(q - v, q - v, self.config.expectile)
 
         # Critic loss 2) critic loss
         next_state_features = self.state_encoder(action_input.next_state, embodiment_id)

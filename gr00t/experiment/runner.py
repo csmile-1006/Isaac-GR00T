@@ -26,6 +26,7 @@ from gr00t.model.gr00t_n1 import GR00T_N1_5
 from gr00t.model.transforms import DefaultDataCollator
 from gr00t.utils.experiment import (
     CheckpointFormatCallback,
+    PolyakUpdateCallback,
     safe_save_model_for_hf_trainer,
 )
 
@@ -175,3 +176,136 @@ class TrainRunner:
             trainer=self.trainer,
             output_dir=self.training_args.output_dir,
         )
+
+
+class CriticTrainRunner(TrainRunner):
+    def __init__(
+        self,
+        model: GR00T_N1_5,
+        training_args: TrainingArguments,
+        train_dataset: LeRobotSingleDataset | LeRobotMixtureDataset,
+        resume_from_checkpoint: bool = False,
+    ):
+        super().__init__(model, training_args, train_dataset, resume_from_checkpoint)
+
+
+    def create_trainer(
+        self,
+        model,
+        training_args,
+        train_dataset,
+        data_collator,
+        compute_dtype,
+        global_batch_size=None,
+    ):
+        # Set the gradient accumulation steps if global_batch_size is provided
+        if global_batch_size is not None:
+            bs = training_args.per_device_train_batch_size
+            num_gpus = torch.cuda.device_count()
+            grad_acc = max(1, global_batch_size // (bs * num_gpus))
+            training_args.gradient_accumulation_steps = grad_acc
+            print(
+                f"Set global batch size to {global_batch_size}, set gradient accumulation steps to {grad_acc}"
+            )
+
+        # Create the trainer
+        trainer = DualBrainTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            data_collator=data_collator,
+            compute_dtype=compute_dtype,
+        )
+
+        # Add checkpoint format callback to ensure experiment_cfg is copied to each checkpoint
+        run_name = training_args.run_name
+        ckpt_format_callback = CheckpointFormatCallback(
+            run_name=run_name, exp_cfg_dir=self.exp_cfg_dir
+        )
+        trainer.add_callback(ckpt_format_callback)
+        polyak_update_callback = PolyakUpdateCallback(
+            target_model=model.critic.target_critic,
+            source_model=model.critic.critic,
+            tau=model.critic.config.tau,
+        )
+        trainer.add_callback(polyak_update_callback)
+
+        # Log dataloader information
+        train_dl_len = len(trainer.get_train_dataloader())
+        # eval_dl_len = len(trainer.get_eval_dataloader()) # @note (k2): How to manage eval dataloader?
+
+        print(
+            f"train dataloader length: {train_dl_len}\n"
+            # f"eval dataloader length: {eval_dl_len}\n"
+            f"train dataset length: {len(trainer.train_dataset)}\n"
+            f"GPU memory before training: {torch.cuda.memory_allocated() / 1024 / 1024 / 1024} GB",
+            flush=True,
+        )
+        return trainer
+
+
+class RLTrainRunner(TrainRunner):
+    def __init__(
+        self,
+        model: GR00T_N1_5,
+        training_args: TrainingArguments,
+        train_dataset: LeRobotSingleDataset | LeRobotMixtureDataset,
+        resume_from_checkpoint: bool = False,
+    ):
+        super().__init__(model, training_args, train_dataset, resume_from_checkpoint)
+
+
+    def create_trainer(
+        self,
+        model,
+        training_args,
+        train_dataset,
+        data_collator,
+        compute_dtype,
+        global_batch_size=None,
+    ):
+        # Set the gradient accumulation steps if global_batch_size is provided
+        if global_batch_size is not None:
+            bs = training_args.per_device_train_batch_size
+            num_gpus = torch.cuda.device_count()
+            grad_acc = max(1, global_batch_size // (bs * num_gpus))
+            training_args.gradient_accumulation_steps = grad_acc
+            print(
+                f"Set global batch size to {global_batch_size}, set gradient accumulation steps to {grad_acc}"
+            )
+
+        # Create the trainer
+        trainer = DualBrainTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            data_collator=data_collator,
+            compute_dtype=compute_dtype,
+        )
+
+        # Add checkpoint format callback to ensure experiment_cfg is copied to each checkpoint
+        run_name = training_args.run_name
+        ckpt_format_callback = CheckpointFormatCallback(
+            run_name=run_name, exp_cfg_dir=self.exp_cfg_dir
+        )
+        trainer.add_callback(ckpt_format_callback)
+        polyak_update_callback = PolyakUpdateCallback(
+            target_model=model.action_head.target_critic,
+            source_model=model.action_head.critic,
+            tau=model.action_head.config.tau,
+        )
+        trainer.add_callback(polyak_update_callback)
+
+        # Log dataloader information
+        train_dl_len = len(trainer.get_train_dataloader())
+        # eval_dl_len = len(trainer.get_eval_dataloader()) # @note (k2): How to manage eval dataloader?
+
+        print(
+            f"train dataloader length: {train_dl_len}\n"
+            # f"eval dataloader length: {eval_dl_len}\n"
+            f"train dataset length: {len(trainer.train_dataset)}\n"
+            f"GPU memory before training: {torch.cuda.memory_allocated() / 1024 / 1024 / 1024} GB",
+            flush=True,
+        )
+        return trainer
+

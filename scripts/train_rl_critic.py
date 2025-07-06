@@ -27,7 +27,7 @@ from transformers import TrainingArguments
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
-from gr00t.experiment.runner import TrainRunner
+from gr00t.experiment.runner import CriticTrainRunner
 from gr00t.model.rl_critic import RL_Critic
 from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.peft import get_lora_model
@@ -63,6 +63,12 @@ class ArgsConfig:
     # Model parameters
     base_model_path: str = "nvidia/GR00T-N1.5-3B"
     """Path or HuggingFace model ID for the base model."""
+
+    # tune_llm: bool = False
+    # """Whether to fine-tune the language model backbone."""
+
+    # tune_visual: bool = False
+    # """Whether to fine-tune the vision tower."""
 
     tune_projector: bool = True
     """Whether to fine-tune the projector."""
@@ -174,6 +180,8 @@ def main(config: ArgsConfig):
     # ------------ step 2: load model ------------
     model = RL_Critic.from_pretrained(
         pretrained_model_name_or_path=config.base_model_path,
+        # tune_visual=config.tune_visual,
+        # tune_llm=config.tune_llm,
         tune_projector=config.tune_projector,  # action head's projector
         from_gr00t_n1_5=True,
     )
@@ -229,7 +237,7 @@ def main(config: ArgsConfig):
     )
 
     # 2.2 run experiment
-    experiment = TrainRunner(
+    experiment = CriticTrainRunner(
         train_dataset=train_dataset,
         model=model,
         training_args=training_args,

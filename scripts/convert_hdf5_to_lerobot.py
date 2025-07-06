@@ -244,7 +244,9 @@ class RelobotFormatter:
         modality_config["done"] = {
             "next.done": {}
         }
-        write_modality_json(modality_config, self.root / "meta")
+        modality_config["next_state"] = modality_config["state"]
+        modality_config["next_video"] = modality_config["video"]
+        write_modality_json(modality_config, self.root)
 
         self.load_info_file()
 
@@ -388,8 +390,8 @@ class RelobotFormatter:
 
         # Save episode data
         self._save_episode_table(buffer, self.episode_index)
-        self._update_episode_info(buffer["size"])
         self._write_episode_metadata(task_inst, episode_length)
+        self._update_episode_info(buffer["size"])
 
         # Verify files
         self._verify_files()

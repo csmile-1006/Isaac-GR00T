@@ -27,7 +27,7 @@ from transformers import TrainingArguments
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
-from gr00t.experiment.runner import TrainRunner
+from gr00t.experiment.runner import RLTrainRunner
 from gr00t.model.gr00t_n1_rl import GR00T_N1_5_RL
 from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.peft import get_lora_model
@@ -241,7 +241,7 @@ def main(config: ArgsConfig):
     )
 
     # 2.2 run experiment
-    experiment = TrainRunner(
+    experiment = RLTrainRunner(
         train_dataset=train_dataset,
         model=model,
         training_args=training_args,

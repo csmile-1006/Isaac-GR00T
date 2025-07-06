@@ -115,6 +115,7 @@ def gather_demonstrations_as_hdf5(directory, out_dir, env_info, excluded_episode
         actions = []
         actions_abs = []
         rewards = []
+        dones = []
         # success = False
 
         for state_file in sorted(glob(state_paths)):
@@ -123,6 +124,7 @@ def gather_demonstrations_as_hdf5(directory, out_dir, env_info, excluded_episode
 
             states.extend(dic["states"])
             rewards.extend(dic["rewards"])
+            dones.extend(dic["dones"])
             for ai in dic["action_infos"]:
                 actions.append(ai["actions"])
                 if "actions_abs" in ai:
@@ -162,6 +164,7 @@ def gather_demonstrations_as_hdf5(directory, out_dir, env_info, excluded_episode
         ep_data_grp.create_dataset("states", data=np.array(states))
         ep_data_grp.create_dataset("actions", data=np.array(actions))
         ep_data_grp.create_dataset("rewards", data=np.array(rewards))
+        ep_data_grp.create_dataset("dones", data=np.array(dones))
         if len(actions_abs) > 0:
             print(np.array(actions_abs).shape)
             ep_data_grp.create_dataset("actions_abs", data=np.array(actions_abs))
@@ -170,7 +173,7 @@ def gather_demonstrations_as_hdf5(directory, out_dir, env_info, excluded_episode
         #     pass
         #     # print("Demonstration is unsuccessful and has NOT been saved")
 
-    print("{} successful demos so far".format(num_eps))
+    print("{} rollouts so far".format(num_eps))
 
     if num_eps == 0:
         f.close()
