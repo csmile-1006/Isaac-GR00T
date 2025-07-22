@@ -24,4 +24,4 @@ python scripts/gr00t_finetune.py \
     --max-steps ${STEPS} \
     --data-config single_panda_gripper \
     --batch-size 12 \
-    --save-steps 5000 \
+    --save-steps 5000
