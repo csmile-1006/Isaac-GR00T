@@ -26,6 +26,7 @@ from transformers.trainer import (
     TrainerState,
     get_last_checkpoint,
     get_parameter_names,
+    get_scheduler,
     is_sagemaker_mp_enabled,
 )
 
@@ -94,25 +95,19 @@ class DualBrainTrainer(transformers.Trainer):
             optimizer_grouped_parameters = [
                 {
                     "params": [
-                        p
-                        for n, p in opt_model.named_parameters()
-                        if (n in decay_parameters and p.requires_grad)
+                        p for n, p in opt_model.named_parameters() if (n in decay_parameters and p.requires_grad)
                     ],
                     "weight_decay": self.args.weight_decay,
                 },
                 {
                     "params": [
-                        p
-                        for n, p in opt_model.named_parameters()
-                        if (n not in decay_parameters and p.requires_grad)
+                        p for n, p in opt_model.named_parameters() if (n not in decay_parameters and p.requires_grad)
                     ],
                     "weight_decay": 0.0,
                 },
             ]
 
-            optimizer_cls, optimizer_kwargs = transformers.Trainer.get_optimizer_cls_and_kwargs(
-                self.args
-            )
+            optimizer_cls, optimizer_kwargs = transformers.Trainer.get_optimizer_cls_and_kwargs(self.args)
             self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
 
         return self.optimizer
@@ -141,13 +136,45 @@ class DualBrainTrainer(transformers.Trainer):
         if isinstance(resume_from_checkpoint, bool) and resume_from_checkpoint:
             resume_from_checkpoint = get_last_checkpoint(self.args.output_dir)
             if resume_from_checkpoint is None:
-                raise ValueError(
-                    f"No valid checkpoint found in output directory ({self.args.output_dir})"
-                )
+                raise ValueError(f"No valid checkpoint found in output directory ({self.args.output_dir})")
 
         if resume_from_checkpoint is not None:
             # In case of repeating the find_executable_batch_size, set `self._train_batch_size` properly
-            self.state = TrainerState.load_from_json(
-                os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME)
-            )
+            self.state = TrainerState.load_from_json(os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME))
         return super().train(resume_from_checkpoint, trial, ignore_keys_for_eval, **kwargs)
+
+
+class DualBrainRLTrainer(DualBrainTrainer):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        outputs = model(inputs)
+        loss = outputs["loss"]
+        # TODO: change this part to log additional details
+        self.log(
+            {
+                "loss": loss,
+                "critic_loss": outputs["critic_loss"],
+                "actor_loss": outputs["actor_loss"],
+                "value_loss": outputs["value_loss"],
+                "distillation_loss": outputs["distillation_loss"],
+            }
+        )
+        return (loss, outputs) if return_outputs else loss
+
+    def create_scheduler(self, num_training_steps: int, optimizer: torch.optim.Optimizer = None):
+        """
+        Setup the scheduler. The optimizer of the trainer must have been set up either before this method is called or
+        passed as an argument.
+
+        Args:
+            num_training_steps (int): The number of training steps to do.
+        """
+        if self.lr_scheduler is None:
+            self.lr_scheduler = get_scheduler(
+                self.args.lr_scheduler_type,
+                optimizer=self.optimizer if optimizer is None else optimizer,
+                num_warmup_steps=self.args.get_warmup_steps(num_training_steps),
+                num_training_steps=num_training_steps,
+                scheduler_specific_kwargs=self.args.lr_scheduler_kwargs,
+            )
+            self._created_lr_scheduler = True
+        return self.lr_scheduler

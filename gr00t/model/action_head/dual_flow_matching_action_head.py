@@ -257,12 +257,23 @@ class DualFlowmatchingActionHead(nn.Module):
             hidden_size=self.input_embedding_dim,
             num_embodiments=config.max_num_embodiments,
         )
+        self.onestep_action_encoder = MultiEmbodimentActionEncoder(
+            action_dim=config.action_dim,
+            hidden_size=self.input_embedding_dim,
+            num_embodiments=config.max_num_embodiments,
+        )
         self.critic_action_encoder = MultiEmbodimentActionCriticEncoder(
             action_dim=config.action_dim,
             hidden_size=self.input_embedding_dim,
             num_embodiments=config.max_num_embodiments,
         )
         self.action_decoder = CategorySpecificMLP(
+            num_categories=config.max_num_embodiments,
+            input_dim=self.hidden_size,
+            hidden_dim=self.hidden_size,
+            output_dim=self.action_dim,
+        )
+        self.onestep_action_decoder = CategorySpecificMLP(
             num_categories=config.max_num_embodiments,
             input_dim=self.hidden_size,
             hidden_dim=self.hidden_size,
@@ -474,7 +485,7 @@ class DualFlowmatchingActionHead(nn.Module):
             encoder_hidden_states=vl_embs,
             timestep=timesteps_tensor,
         )
-        onestep_pred = self.action_decoder(onestep_model_output, embodiment_id)
+        onestep_pred = self.onestep_action_decoder(onestep_model_output, embodiment_id)
         onestep_pred_velocity = onestep_pred[:, -self.action_horizon :]
 
         onestep_actions = noises + onestep_pred_velocity

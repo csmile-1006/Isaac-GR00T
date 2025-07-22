@@ -261,7 +261,9 @@ class GR00T_N1_5_RL(PreTrainedModel):
                 "onestep_model": "model",  # Uses same model
                 "state_encoder": "state_encoder",
                 "action_encoder": "action_encoder",
+                "onestep_action_encoder": "action_encoder", # Uses same model
                 "action_decoder": "action_decoder",
+                "onestep_action_decoder": "action_decoder", # Uses same model
                 "vlln": "vlln",
                 "vl_self_attention": "vl_self_attention",
             }
