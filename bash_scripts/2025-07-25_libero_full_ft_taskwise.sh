@@ -4,6 +4,7 @@
 #SBATCH --error=/home/changyeon/slurm-logs/libero_taskwise/%j.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --cpus-per-gpu=8     # GPU당 CPU 사용 수                                                                                                             
+#SBATCH --gres=gpu:a6000:4
 #SBATCH --mem-per-gpu=48G     # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 96시간 실행
 
@@ -11,8 +12,6 @@ TASK_NAME=$1
 BATCH_SIZE=$2
 NUM_GPUS=$3
 STEPS=$4
-
-#SBATCH --gres=gpu:a6000:${NUM_GPUS}
 
 source /home/changyeon/miniconda3/bin/activate libero
 cd /home/changyeon/workspace/Isaac-GR00T
