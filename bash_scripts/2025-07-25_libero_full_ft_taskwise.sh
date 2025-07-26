@@ -14,7 +14,7 @@ STEPS=$4
 
 #SBATCH --gres=gpu:a6000:${NUM_GPUS}
 
-source /home/changyeon/miniconda3/bin/activate gr00t
+source /home/changyeon/miniconda3/bin/activate libero
 cd /home/changyeon/workspace/Isaac-GR00T
 
 python scripts/gr00t_finetune.py \
