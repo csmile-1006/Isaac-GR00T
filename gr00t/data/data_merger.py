@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import pandas as pd  # type: ignore
+from tqdm import tqdm
 
 # --- Constants ---
 PAD = 6  # Padding for episode numbers (e.g., 000032)
@@ -19,6 +20,14 @@ DELETE_STEM_RE = re.compile(r"^episode_(\d{6})$")
 DELETE_PATCH_KEYS = {"episode_index", "index"}  # For delete _patch
 
 
+def slugify(txt: str) -> str:
+    """
+    Slugify a string to make it a valid filename.
+    Example: "Hello World" -> "hello_world"
+    """
+    return re.sub(r"[^a-z0-9]+", "_", txt.lower()).strip("_")
+
+
 class DatasetManager:
     """
     Manages Lerobot datasets, allowing operations like merging and deleting episodes.
@@ -26,7 +35,7 @@ class DatasetManager:
 
     # ─────────────────────────────────── Static Utilities ────────────────────────────────── #
     @staticmethod
-    def _extract_idx_from_name(name_with_index: str, default_pad: int = PAD) -> int:
+    def _extract_idx_from_name(name_with_index: str) -> int:
         """Extracts a numerical index from a filename stem or full name."""
         num_re = re.compile(r"(\d+)(?=\.parquet$|\.mp4$|$)")
         match = num_re.search(name_with_index)
@@ -278,7 +287,7 @@ class DatasetManager:
             src_ep = src_meta_dir / "episodes.jsonl"
             if src_ep.exists():
                 base_data = self.read_jsonl(ep_out) if ep_out.exists() else []
-                new_data = self.read_jsonl(src_ep)[:actual_episode_counts[i]]
+                new_data = self.read_jsonl(src_ep)[: actual_episode_counts[i]]
                 for r_new in new_data:  # Similar shifting as episodes_stats
                     r_new["episode_index"] += current_meta_episode_offset
                     if "index" in r_new:
@@ -295,7 +304,7 @@ class DatasetManager:
             src_tasks = src_meta_dir / "tasks.jsonl"
             if src_tasks.exists():
                 base_tasks = self.read_jsonl(tasks_out) if tasks_out.exists() else []
-                new_tasks = self.read_jsonl(src_tasks)[:actual_episode_counts[i]]
+                new_tasks = self.read_jsonl(src_tasks)[: actual_episode_counts[i]]
                 existing_task_names = {r["task"]: r["task_index"] for r in base_tasks}
                 next_idx = max(existing_task_names.values()) + 1 if existing_task_names else 0
                 for r_new in new_tasks:
@@ -317,7 +326,15 @@ class DatasetManager:
                 for k, v in d_new.items():
                     if (
                         k not in MERGE_NUM_KEYS
-                        and k not in ["splits", "total_episodes", "total_frames", "chunks_size", "total_chunks", "total_tasks"]
+                        and k
+                        not in [
+                            "splits",
+                            "total_episodes",
+                            "total_frames",
+                            "chunks_size",
+                            "total_chunks",
+                            "total_tasks",
+                        ]
                         or k == "splits"
                         and not d_base
                     ):
@@ -647,6 +664,222 @@ class DatasetManager:
         if verbose:
             print(f"    {path.name} updated.")
 
+    # ─────────────────────────────────── SPLIT Operation ─────────────────────────────────── #
+    def _copy_parquet_and_update_indices_for_split(
+        self,
+        src_root: Path,
+        dst_data_dir: Path,
+        task_list: List[str],
+        episode_task_list: List[str],
+        verbose: bool,
+    ) -> int:
+        """
+        Copy Parquet files and update indices for each task.
+        """
+        src_chunk_dirs = self._natural_sort_paths((src_root / "data").glob("chunk-*"))
+        count_processed = {task: 0 for task in task_list}
+        frames_processed = {task: 0 for task in task_list}
+
+        for src_chunk_dir in tqdm(src_chunk_dirs, total=len(src_chunk_dirs), desc="Copying Parquet files", leave=False):
+            if not src_chunk_dir.exists():
+                if verbose:
+                    print(f"Error: Source chunk directory not found: {src_chunk_dir}")
+                return 0
+
+            src_files = self._natural_sort_paths(src_chunk_dir.glob("episode_*.parquet"))
+            if not src_files:
+                if verbose:
+                    print(f"Error: No Parquet files found in {src_chunk_dir}")
+                return 0
+
+            for src_file_path in tqdm(
+                src_files, total=len(src_files), desc=f"Copying Parquet files from {src_chunk_dir.name}", leave=False
+            ):
+                ep_idx = self._extract_idx_from_name(src_file_path.name)
+                task = episode_task_list[ep_idx]
+                dst_file_path = (
+                    dst_data_dir
+                    / f"{slugify(task)}"
+                    / "data"
+                    / "chunk-000"
+                    / f"episode_{count_processed[task]:0{PAD}d}.parquet"
+                )
+                try:
+                    df = pd.read_parquet(src_file_path)
+                    if "task_index" in df.columns:
+                        df["task_index"] = 0  # reset the index to be 0.
+                    if "episode_index" in df.columns:
+                        df["episode_index"] = count_processed[task]
+                    df.to_parquet(dst_file_path)
+                    count_processed[task] += 1
+                    frames_processed[task] += len(df)
+                except Exception as e:
+                    if verbose:
+                        print(f"Error: Could not read Parquet file {src_file_path}: {e}")
+                    if dst_file_path.exists():
+                        dst_file_path.unlink(missing_ok=True)
+        return count_processed, frames_processed
+
+    def _split_all_meta_files(
+        self,
+        dataset_dir: Path,
+        output_dir: Path,
+        task_list: List[str],
+        processed_eps: Dict[str, int],
+        processed_frames: Dict[str, int],
+        verbose: bool,
+    ):
+        """
+        Split all meta files.
+        """
+
+        src_modality = dataset_dir / "meta" / "modality.json"
+        src_episodes = dataset_dir / "meta" / "episodes.jsonl"
+        src_tasks = dataset_dir / "meta" / "tasks.jsonl"
+        src_info = dataset_dir / "meta" / "info.json"
+
+        task_dirs = {task: output_dir / slugify(task) for task in task_list}
+        ep_outs = {task: task_dirs[task] / "meta" / "episodes.jsonl" for task in task_list}
+        task_outs = {task: task_dirs[task] / "meta" / "tasks.jsonl" for task in task_list}
+        info_outs = {task: task_dirs[task] / "meta" / "info.json" for task in task_list}
+        modality_outs = {task: task_dirs[task] / "meta" / "modality.json" for task in task_list}
+
+        base_ep_data = self.read_jsonl(src_episodes)
+        base_info_data = json.loads(src_info.read_text())
+        ep_cnt_per_task = {task: 0 for task in task_list}
+        ep_list_per_task = {task: [] for task in task_list}
+        if verbose:
+            print(f"Splitting dataset {dataset_dir} into {output_dir}")
+
+        for ep_data in base_ep_data:
+            task = ep_data["tasks"][0]
+            new_ep_data = {
+                "episode_index": ep_cnt_per_task[task],
+                "tasks": ep_data["tasks"],
+                "length": ep_data["length"],
+            }
+            ep_list_per_task[task].append(new_ep_data)
+            ep_cnt_per_task[task] += 1
+
+        for task in task_list:
+            # write modality.json
+            shutil.copy2(src_modality, modality_outs[task])
+
+            # write tasks.jsonl
+            task_json = [{"task_index": 0, "task": task}]
+            shutil.copy2(src_tasks, task_outs[task])
+            self.write_jsonl(task_json, task_outs[task])
+
+            # write episodes.jsonl
+            self.write_jsonl(ep_list_per_task[task], ep_outs[task])
+
+            # write info.json
+            new_info_data = base_info_data.copy()
+            new_info_data["total_episodes"] = processed_eps[task]
+            new_info_data["total_frames"] = processed_frames[task]
+            new_info_data["total_tasks"] = 1
+            new_info_data["total_chunks"] = 1
+            new_info_data["splits"]["train"] = f"0:{ep_cnt_per_task[task]}"
+            info_outs[task].write_text(json.dumps(new_info_data, indent=2))
+
+    def _copy_all_videos_for_split(
+        self, dataset_dir: Path, output_dir: Path, task_list: List[str], episode_task_list: List[str], verbose: bool
+    ):
+        """
+        Copy all videos for each task.
+        """
+        ep_to_idx_per_task = {}
+        ep_cnt_per_task = {task: 0 for task in task_list}
+
+        for ep_data in self.read_jsonl(dataset_dir / "meta" / "episodes.jsonl"):
+            task = ep_data["tasks"][0]
+            ep_to_idx_per_task[ep_data["episode_index"]] = ep_cnt_per_task[task]
+            ep_cnt_per_task[task] += 1
+
+        src_chunk_dirs = self._natural_sort_paths((dataset_dir / "videos").glob("chunk-*"))
+        for src_chunk_dir in tqdm(src_chunk_dirs, total=len(src_chunk_dirs), desc="Copying Videos", leave=False):
+            if not src_chunk_dir.exists():
+                if verbose:
+                    print(f"Error: Source chunk directory not found: {src_chunk_dir}")
+                return 0
+
+            cam_dirs = sorted([d for d in src_chunk_dir.iterdir() if d.is_dir()])
+            if not cam_dirs:
+                vids_in_chunk = self._natural_sort_paths(src_chunk_dir.glob("*.mp4"))
+                for src_vid in tqdm(
+                    vids_in_chunk,
+                    total=len(vids_in_chunk),
+                    desc=f"Copying Videos from {src_chunk_dir.name}",
+                    leave=False,
+                ):
+                    ep_idx = self._extract_idx_from_name(src_vid.name)
+                    task = episode_task_list[ep_idx]
+                    dst_file_path = (
+                        output_dir
+                        / f"{slugify(task)}"
+                        / "videos"
+                        / "chunk-000"
+                        / f"episode_{ep_to_idx_per_task[ep_idx]:0{PAD}d}.mp4"
+                    )
+                    self.safe_mkdir(dst_file_path.parent)
+                    shutil.copy2(src_vid, dst_file_path)
+            else:
+                for cam_dir_path in tqdm(
+                    cam_dirs, total=len(cam_dirs), desc=f"Copying Videos from {src_chunk_dir.name}", leave=False
+                ):
+                    vids = self._natural_sort_paths(cam_dir_path.glob("*.mp4"))
+                    for src_vid in tqdm(
+                        vids, total=len(vids), desc=f"Copying Videos from {cam_dir_path.name}", leave=False
+                    ):
+                        ep_idx = self._extract_idx_from_name(src_vid.name)
+                        task = episode_task_list[ep_idx]
+                        dst_file_path = (
+                            output_dir
+                            / f"{slugify(task)}"
+                            / "videos"
+                            / "chunk-000"
+                            / cam_dir_path.name
+                            / f"episode_{ep_to_idx_per_task[ep_idx]:0{PAD}d}.mp4"
+                        )
+                        self.safe_mkdir(dst_file_path.parent)
+                        shutil.copy2(src_vid, dst_file_path)
+
+    def split_dataset(self, dataset_dir: Path, output_dir: Path, verbose: bool = False):
+        """
+        Split a dataset according to task type.
+        """
+        if verbose:
+            print(f"Splitting dataset {dataset_dir} into {output_dir}")
+
+        task_list = [elem["task"] for elem in self.read_jsonl(dataset_dir / "meta" / "tasks.jsonl")]
+        episode_task_list = {
+            elem["episode_index"]: elem["tasks"][0] for elem in self.read_jsonl(dataset_dir / "meta" / "episodes.jsonl")
+        }
+        for task in task_list:
+            task_output_dir = output_dir / slugify(task)
+            meta_dst_dir = task_output_dir / "meta"
+            self.safe_mkdir(meta_dst_dir)
+
+            # assume that the dataset is using only one chunk for each task
+            self.safe_mkdir(task_output_dir / "data" / "chunk-000")
+            self.safe_mkdir(task_output_dir / "videos" / "chunk-000")
+
+        if verbose:
+            print("\n--- Processing Parquet Files and Determining Task-Specific Episode Counts ---")
+        processed_eps, processed_frames = self._copy_parquet_and_update_indices_for_split(
+            dataset_dir, output_dir, task_list, episode_task_list, verbose
+        )
+
+        if verbose:
+            print("\n--- Processing Metadata Files ---")
+        self._split_all_meta_files(dataset_dir, output_dir, task_list, processed_eps, processed_frames, verbose)
+
+        if verbose:
+            print("\n--- Processing Videos ---")
+        self._copy_all_videos_for_split(dataset_dir, output_dir, task_list, episode_task_list, verbose)
+
+        print(f"\n✅ Split finished!\n  • Output directory: {output_dir}")
+
 
 """
 Lerobot Dataset Tool - CLI Interface
@@ -729,6 +962,25 @@ def main_cli():
     )
     parser_delete.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output.")
 
+    parser_split = subparsers.add_parser(
+        "split",
+        help="Split a dataset into multiple tasks.",
+        description=("Splits a dataset into multiple tasks. \nThis operation modifies the dataset IN-PLACE."),
+    )
+    parser_split.add_argument(
+        "--dataset_dir",
+        type=Path,
+        required=True,
+        help="Path to the dataset to modify (operation is in-place).",
+    )
+    parser_split.add_argument(
+        "--output_dir",
+        type=Path,
+        required=True,
+        help="Directory where the split dataset will be saved.",
+    )
+    parser_split.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output.")
+
     args = parser.parse_args()
     manager = DatasetManager()
 
@@ -736,6 +988,8 @@ def main_cli():
         manager.merge_datasets(args.datasets, args.output_dir, args.chunk_name, args.num_episodes, args.verbose)
     elif args.command == "delete":
         manager.delete_episode_from_dataset(args.dataset_dir, args.episode_id, args.chunk_name, args.verbose)
+    elif args.command == "split":
+        manager.split_dataset(args.dataset_dir, args.output_dir, args.verbose)
     else:
         parser.print_help()  # Should not be reached due to `required=True` on subparsers
 

@@ -122,6 +122,10 @@ class ArgsConfig:
     balance_trajectory_weights: bool = True
     """Used in LeRobotMixtureDataset. If True, sample trajectories within a dataset weighted by their length; otherwise, equal weighting."""
 
+    # Logging parameters
+    run_name: str = "default"
+    """Run name for logging."""
+
 
 #####################################################################################
 # main training function
@@ -202,7 +206,7 @@ def main(config: ArgsConfig):
     # 2.1 modify training args
     training_args = TrainingArguments(
         output_dir=config.output_dir,
-        run_name=None,
+        run_name=config.run_name,
         remove_unused_columns=False,
         deepspeed="",
         gradient_checkpointing=False,

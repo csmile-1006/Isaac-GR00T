@@ -74,6 +74,8 @@ def calculate_dataset_statistics(parquet_paths: list[Path]) -> dict:
     # Compute dataset statistics
     dataset_statistics = {}
     for le_modality in all_low_dim_data.columns:
+        if "images" in le_modality:
+            continue
         print(f"Computing statistics for {le_modality}...")
         np_data = np.vstack([np.asarray(x, dtype=np.float32) for x in all_low_dim_data[le_modality]])
         dataset_statistics[le_modality] = {
