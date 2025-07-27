@@ -17,6 +17,7 @@ import argparse
 import datetime
 import json
 import os
+import time
 import warnings
 from collections import defaultdict
 from glob import glob
@@ -27,30 +28,16 @@ import mujoco
 import numpy as np
 import robocasa
 import robosuite
-from gymnasium.wrappers import TimeLimit
-from robosuite.controllers import load_composite_controller_config
-from tqdm import tqdm, trange
 from robocasa.utils.robomimic.robomimic_dataset_utils import convert_to_robomimic_format
-from robocasa.utils.dataset_registry import SINGLE_STAGE_TASK_DATASETS, MULTI_STAGE_TASK_DATASETS
+from robosuite.controllers import load_composite_controller_config
+from tqdm import tqdm
 
 from gr00t.eval.robot import RobotInferenceClient
-from gr00t.eval.wrappers.multistep_wrapper import MultiStepWrapper
-from gr00t.eval.wrappers.record_video import RecordVideo
-from gr00t.eval.wrappers.robocasa_wrapper import RoboCasaWrapper, load_robocasa_gym_env
+from gr00t.eval.wrappers.robocasa_wrapper import load_robocasa_gym_env
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.model.policy import BasePolicy, Gr00tPolicy
 
 warnings.simplefilter("ignore", category=FutureWarning)
-
-
-def get_env_horizon(env_name):
-    if env_name in SINGLE_STAGE_TASK_DATASETS:
-        ds_config = SINGLE_STAGE_TASK_DATASETS[env_name]
-    elif env_name in MULTI_STAGE_TASK_DATASETS:
-        ds_config = MULTI_STAGE_TASK_DATASETS[env_name]
-    else:
-        raise ValueError(f"Environment {env_name} not found in dataset registry")
-    return ds_config["horizon"]
 
 
 def add_to(dict_of_lists, single_dict):
@@ -210,6 +197,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="localhost", help="host")
     parser.add_argument("--port", type=int, default=5555, help="port")
+    parser.add_argument("--n_envs", type=int, default=1, help="number of environments")
     parser.add_argument(
         "--data_config",
         type=str,
@@ -299,22 +287,20 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--layout", type=int, nargs="+", default=-1)
-    parser.add_argument(
-        "--style", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6, 7, 8, 11]
-    )
+    parser.add_argument("--style", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6, 7, 8, 11])
     parser.add_argument("--generative_textures", action="store_true", help="Use generative textures")
 
     # Data collection parameters
     parser.add_argument(
         "--collect_data",
-        type=bool,
+        action="store_true",
         default=False,
         help="Whether to collect data",
     )
     parser.add_argument(
         "--data_collection_path",
         type=str,
-        default=None,
+        default="",
         help="Path to save the data collection",
     )
 
@@ -345,7 +331,6 @@ if __name__ == "__main__":
     modality = policy.get_modality_config()
     print(modality)
 
-
     # ROBOCASA ENV SETUP
     # load robocasa env
     controller_config = load_composite_controller_config(
@@ -369,9 +354,7 @@ if __name__ == "__main__":
     # Mirror actions if using a kitchen environment
     if env_name in ["Lift"]:  # add other non-kitchen tasks here
         if args.obj_groups is not None:
-            print(
-                "Specifying 'obj_groups' in non-kitchen environment does not have an effect."
-            )
+            print("Specifying 'obj_groups' in non-kitchen environment does not have an effect.")
     else:
         config["layout_ids"] = args.layout
         config["style_ids"] = args.style
@@ -389,6 +372,7 @@ if __name__ == "__main__":
 
     env = load_robocasa_gym_env(
         args.env_name,
+        n_envs=args.n_envs,
         seed=args.seed,
         # robosuite-related configs
         robots=args.robots,
@@ -403,23 +387,13 @@ if __name__ == "__main__":
         style_ids=args.style,
         # data collection configs
         collect_data=args.collect_data,
-        collect_directory=Path(args.data_collection_path),
-    )
-    env = RoboCasaWrapper(env)
-    record_video = args.video_path is not None
-    if record_video:
-        video_base_path = Path(args.video_path)
-        # video_base_path.mkdir(parents=True, exist_ok=True)
-        episode_trigger = lambda t: t % 1 == 0  # noqa
-        env = RecordVideo(env, video_base_path, disable_logger=True, episode_trigger=episode_trigger, fps=20)
-
-    env_horizon = get_env_horizon(env_name)
-    env = TimeLimit(env, max_episode_steps=env_horizon)
-    env = MultiStepWrapper(
-        env,
-        video_delta_indices=np.arange(1),
-        state_delta_indices=np.arange(1),
-        n_action_steps=args.action_horizon,
+        collect_directory=Path(args.data_collection_path) if args.collect_data else None,
+        # video configs
+        video_path=args.video_path,
+        # multi-step configs
+        action_horizon=args.action_horizon,
+        video_delta_indices=np.array([0]),
+        state_delta_indices=np.array([0]),
     )
 
     # postprocess function of action, to handle the case where number of dimensions are not the same
@@ -433,35 +407,63 @@ if __name__ == "__main__":
         return new_action
 
     # main evaluation loop
+    start_time = time.time()
     stats = defaultdict(list)
-    for i in trange(args.num_episodes):
-        pbar = tqdm(
-            total=env_horizon, desc=f"Episode {i + 1} / {env.unwrapped.get_ep_meta()['lang']}", leave=False
-        )
-        obs, info = env.reset()
-        done = False
-        step = 0
-        while not done:
-            action = policy.get_action(obs)
-            post_action = postprocess_action(action)
-            next_obs, reward, terminated, truncated, info = env.step(post_action)
-            done = terminated or truncated
-            step += args.action_horizon
-            obs = next_obs
-            pbar.update(args.action_horizon)
-        add_to(stats, flatten({"is_success": info["is_success"]}))
-        pbar.close()
 
+    # Initialize tracking variables
+    episode_lengths = []
+    current_rewards = [0] * args.n_envs
+    current_lengths = [0] * args.n_envs
+    completed_episodes = 0
+    current_successes = [False] * args.n_envs
+    episode_successes = []
+    # Initial environment reset
+    obs, _ = env.reset()
+    pbar = tqdm(
+        total=args.num_episodes,
+        desc=f"Evaluating {args.num_episodes} episodes",
+        leave=False,
+    )
+    # Main simulation loop
+    while completed_episodes < args.num_episodes:
+        # Process observations and get actions from the server
+        actions = policy.get_action(obs)
+        # Step the environment
+        next_obs, rewards, terminations, truncations, env_infos = env.step(actions)
+        # Update episode tracking
+        for env_idx in range(args.n_envs):
+            current_successes[env_idx] |= bool(env_infos["success"][env_idx][0])
+            current_rewards[env_idx] += rewards[env_idx]
+            current_lengths[env_idx] += 1
+            # If episode ended, store results
+            if terminations[env_idx] or truncations[env_idx]:
+                episode_lengths.append(current_lengths[env_idx])
+                episode_successes.append(current_successes[env_idx])
+                current_successes[env_idx] = False
+                completed_episodes += 1
+                # Reset trackers for this environment
+                current_rewards[env_idx] = 0
+                current_lengths[env_idx] = 0
+                pbar.update(1)
+        obs = next_obs
+
+    pbar.close()
+    env.reset()
     env.close()
 
-    print("Change collected data to hdf5 format")
-    hdf5_path = gather_demonstrations_as_hdf5(
-        args.data_collection_path, args.data_collection_path, env_info
+    print(f"Collecting {args.num_episodes} episodes took {time.time() - start_time:.2f} seconds")
+    assert len(episode_successes) >= args.num_episodes, (
+        f"Expected at least {args.num_episodes} episodes, got {len(episode_successes)}"
     )
-    convert_to_robomimic_format(hdf5_path)
+
+    if args.collect_data:
+        print("Change collected data to hdf5 format")
+        hdf5_path = gather_demonstrations_as_hdf5(args.data_collection_path, args.data_collection_path, env_info)
+        convert_to_robomimic_format(hdf5_path)
 
     for k, v in stats.items():
         stats[k] = np.mean(v)
     print(stats)
+    print(f"episode_successes: {episode_successes}")
 
     exit()

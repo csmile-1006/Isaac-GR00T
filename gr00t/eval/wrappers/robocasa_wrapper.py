@@ -1,4 +1,6 @@
 from pathlib import Path
+from functools import partial
+from typing import Optional
 
 import gymnasium as gym
 import numpy as np
@@ -6,11 +8,37 @@ import robocasa  # noqa
 import robosuite
 from robosuite.controllers import load_composite_controller_config
 from robosuite.wrappers import GymWrapper
+from gymnasium.wrappers import TimeLimit
+from robocasa.utils.dataset_registry import SINGLE_STAGE_TASK_DATASETS, MULTI_STAGE_TASK_DATASETS
 
+from gr00t.eval.wrappers.multistep_wrapper import MultiStepWrapper
 from gr00t.eval.wrappers.data_collection_wrapper import DataCollectionWrapper
+from gr00t.eval.wrappers.record_video import RecordVideo
 
 
-def load_robocasa_gym_env(
+def get_env_horizon(env_name):
+    if env_name in SINGLE_STAGE_TASK_DATASETS:
+        ds_config = SINGLE_STAGE_TASK_DATASETS[env_name]
+    elif env_name in MULTI_STAGE_TASK_DATASETS:
+        ds_config = MULTI_STAGE_TASK_DATASETS[env_name]
+    else:
+        raise ValueError(f"Environment {env_name} not found in dataset registry")
+    return ds_config["horizon"]
+
+
+def load_robocasa_gym_env(env_name, n_envs=1, **kwargs):
+    env_fns = [partial(create_robocasa_gym_env, env_name=env_name, **kwargs) for _ in range(n_envs)]
+    if n_envs == 1:
+        return gym.vector.SyncVectorEnv(env_fns)
+    else:
+        return gym.vector.AsyncVectorEnv(
+            env_fns,
+            shared_memory=False,
+            context="spawn",
+        )
+
+
+def create_robocasa_gym_env(
     env_name,
     seed=None,
     # robosuite-related configs
@@ -35,6 +63,12 @@ def load_robocasa_gym_env(
     collect_directory: Path = None,
     collect_freq: int = 1,
     flush_freq: int = 100,
+    # video configs
+    video_path: Optional[str] = None,
+    # multi-step configs
+    action_horizon: int = 16,
+    video_delta_indices: np.ndarray = np.array([0]),
+    state_delta_indices: np.ndarray = np.array([0]),
 ):
     controller_config = load_composite_controller_config(
         controller=None,
@@ -92,6 +126,23 @@ def load_robocasa_gym_env(
             "robot0_eye_in_hand_image",
         ],
     )
+
+    env = RoboCasaWrapper(env)
+    record_video = video_path is not None
+    if record_video:
+        video_base_path = Path(video_path)
+        # video_base_path.mkdir(parents=True, exist_ok=True)
+        episode_trigger = lambda t: t % 1 == 0  # noqa
+        env = RecordVideo(env, video_base_path, disable_logger=True, episode_trigger=episode_trigger, fps=20)
+
+    env = TimeLimit(env, max_episode_steps=get_env_horizon(env_name))
+    env = MultiStepWrapper(
+        env,
+        video_delta_indices=video_delta_indices,
+        state_delta_indices=state_delta_indices,
+        n_action_steps=action_horizon,
+    )
+
     return env
 
 
@@ -161,7 +212,7 @@ class RoboCasaWrapper(gym.Wrapper):
 
     def reset(self, seed=None, options=None):
         obs, info = super().reset(seed=seed, options=options)
-        info["is_success"] = self.is_success()["task"]
+        info["success"] = self.is_success()["task"]
         return self.convert_observation(obs), info
 
     def render(self, mode="rgb_array"):
@@ -202,8 +253,8 @@ class RoboCasaWrapper(gym.Wrapper):
     def step(self, action):
         action = self.convert_action(action)
         obs, reward, terminated, truncated, info = super().step(action)
-        info["is_success"] = self.is_success()["task"]
-        terminated = terminated or info["is_success"]
+        info["success"] = self.is_success()["task"]
+        terminated = terminated or info["success"]
         return self.convert_observation(obs), reward, terminated, truncated, info
 
     def close(self):
@@ -211,9 +262,9 @@ class RoboCasaWrapper(gym.Wrapper):
 
 
 if __name__ == "__main__":
-    env_name = "PnPCounterToMicrowave"
+    _env_name = "PnPCounterToMicrowave"
 
-    env = load_robocasa_gym_env(env_name)
+    env = create_robocasa_gym_env(_env_name)
     env = RoboCasaWrapper(env)
 
     obs, _ = env.reset()
