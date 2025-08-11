@@ -69,6 +69,8 @@ def create_robocasa_gym_env(
     action_horizon: int = 16,
     video_delta_indices: np.ndarray = np.array([0]),
     state_delta_indices: np.ndarray = np.array([0]),
+    # reward configs
+    reward_shaping=False,
 ):
     controller_config = load_composite_controller_config(
         controller=None,
@@ -96,6 +98,7 @@ def create_robocasa_gym_env(
         layout_ids=layout_ids,
         style_ids=style_ids,
         translucent_robot=False,
+        reward_shaping=reward_shaping,
     )
 
     env = robosuite.make(**env_kwargs)

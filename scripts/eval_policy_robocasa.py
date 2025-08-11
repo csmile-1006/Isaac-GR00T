@@ -124,8 +124,7 @@ def gather_demonstrations_as_hdf5(directory, out_dir, env_info, excluded_episode
         # Delete the last state. This is because when the DataCollector wrapper
         # recorded the states and actions, the states were recorded AFTER playing that action,
         # so we end up with an extra state at the end.
-        if np.sum(successes) == 0:
-            del states[-1]
+        del states[-1]
         assert len(states) == len(actions)
 
         if np.sum(successes) > 0:
@@ -138,7 +137,9 @@ def gather_demonstrations_as_hdf5(directory, out_dir, env_info, excluded_episode
             if len(actions_abs) > 0:
                 actions_abs = actions_abs[:i+1]
             rewards = rewards[:i+1]
-            dones = dones[:i+1]
+            dones = successes[:i+1] # make dones same as successes
+        else:
+            dones[-1] = True # make the last state a terminal state
 
         num_eps += 1
         ep_data_grp = grp.create_group("demo_{}".format(num_eps))
@@ -313,6 +314,13 @@ if __name__ == "__main__":
         help="Path to save the data collection",
     )
 
+    parser.add_argument(
+        "--reward_shaping",
+        action="store_true",
+        default=False,
+        help="Whether to use reward shaping",
+    )
+
     args = parser.parse_args()
 
     data_config = DATA_CONFIG_MAP[args.data_config]
@@ -402,6 +410,8 @@ if __name__ == "__main__":
         action_horizon=args.action_horizon,
         video_delta_indices=np.array([0]),
         state_delta_indices=np.array([0]),
+        # reward configs
+        reward_shaping=args.reward_shaping,
     )
 
     # postprocess function of action, to handle the case where number of dimensions are not the same
