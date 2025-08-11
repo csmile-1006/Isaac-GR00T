@@ -55,14 +55,14 @@ def create_robocasa_gym_env(
     obj_instance_split=None,
     generative_textures=None,
     randomize_cameras=False,
-    layout_and_style_ids=None,
+    layout_and_style_ids=[],
     layout_ids=None,
     style_ids=None,
     # data collection configs
     collect_data: bool = False,
     collect_directory: Path = None,
     collect_freq: int = 1,
-    flush_freq: int = 100,
+    flush_freq: int = 1000,
     # video configs
     video_path: Optional[str] = None,
     # multi-step configs
@@ -135,12 +135,13 @@ def create_robocasa_gym_env(
         episode_trigger = lambda t: t % 1 == 0  # noqa
         env = RecordVideo(env, video_base_path, disable_logger=True, episode_trigger=episode_trigger, fps=20)
 
-    env = TimeLimit(env, max_episode_steps=get_env_horizon(env_name))
+    # env = TimeLimit(env, max_episode_steps=get_env_horizon(env_name))
     env = MultiStepWrapper(
         env,
         video_delta_indices=video_delta_indices,
         state_delta_indices=state_delta_indices,
         n_action_steps=action_horizon,
+        max_episode_steps=get_env_horizon(env_name),
     )
 
     return env
@@ -211,7 +212,8 @@ class RoboCasaWrapper(gym.Wrapper):
         return self.env.get_ep_meta()["lang"]
 
     def reset(self, seed=None, options=None):
-        obs, info = super().reset(seed=seed, options=options)
+        obs, _ = super().reset(seed=seed, options=options)
+        info = {}
         info["success"] = self.is_success()["task"]
         return self.convert_observation(obs), info
 
@@ -254,7 +256,6 @@ class RoboCasaWrapper(gym.Wrapper):
         action = self.convert_action(action)
         obs, reward, terminated, truncated, info = super().step(action)
         info["success"] = self.is_success()["task"]
-        terminated = terminated or info["success"]
         return self.convert_observation(obs), reward, terminated, truncated, info
 
     def close(self):

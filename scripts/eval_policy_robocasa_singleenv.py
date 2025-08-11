@@ -30,10 +30,10 @@ import robocasa
 import robosuite
 from robocasa.utils.robomimic.robomimic_dataset_utils import convert_to_robomimic_format
 from robosuite.controllers import load_composite_controller_config
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from gr00t.eval.robot import RobotInferenceClient
-from gr00t.eval.wrappers.robocasa_wrapper import load_robocasa_gym_env
+from gr00t.eval.wrappers.robocasa_wrapper import get_env_horizon, load_robocasa_gym_env
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.model.policy import BasePolicy, Gr00tPolicy
 
@@ -103,7 +103,7 @@ def gather_demonstrations_as_hdf5(directory, out_dir, env_info, excluded_episode
         actions_abs = []
         rewards = []
         dones = []
-        successes = []
+        # success = False
 
         for state_file in sorted(glob(state_paths)):
             dic = np.load(state_file, allow_pickle=True)
@@ -112,33 +112,24 @@ def gather_demonstrations_as_hdf5(directory, out_dir, env_info, excluded_episode
             states.extend(dic["states"])
             rewards.extend(dic["rewards"])
             dones.extend(dic["dones"])
-            successes.extend(dic["successes"])
             for ai in dic["action_infos"]:
                 actions.append(ai["actions"])
                 if "actions_abs" in ai:
                     actions_abs.append(ai["actions_abs"])
+            # success = success or dic["successful"]
 
         if len(states) == 0:
             continue
 
+        # # Add only the successful demonstration to dataset
+        # if success:
+
+        # print("Demonstration is successful and has been saved")
         # Delete the last state. This is because when the DataCollector wrapper
         # recorded the states and actions, the states were recorded AFTER playing that action,
         # so we end up with an extra state at the end.
-        if np.sum(successes) == 0:
-            del states[-1]
+        del states[-1]
         assert len(states) == len(actions)
-
-        if np.sum(successes) > 0:
-            # cut transitions to the first successful state
-            for i in range(len(states)):
-                if successes[i]:
-                    break
-            states = states[:i+1]
-            actions = actions[:i+1]
-            if len(actions_abs) > 0:
-                actions_abs = actions_abs[:i+1]
-            rewards = rewards[:i+1]
-            dones = dones[:i+1]
 
         num_eps += 1
         ep_data_grp = grp.create_group("demo_{}".format(num_eps))
@@ -417,45 +408,26 @@ if __name__ == "__main__":
     # main evaluation loop
     start_time = time.time()
 
-    # Initialize tracking variables
-    episode_lengths = []
-    current_rewards = [0] * args.n_envs
-    current_lengths = [0] * args.n_envs
-    completed_episodes = 0
-    current_successes = [False] * args.n_envs
-    episode_successes = []
-    # Initial environment reset
-    obs, _ = env.reset()
-    pbar = tqdm(
-        total=args.num_episodes,
-        desc=f"Evaluating {args.num_episodes} episodes",
-        leave=False,
-    )
-    # Main simulation loop
-    while completed_episodes < args.num_episodes:
-        # Process observations and get actions from the server
-        actions = policy.get_action(obs)
-        # Step the environment
-        next_obs, rewards, terminations, truncations, env_infos = env.step(actions)
-        # Update episode tracking
-        for env_idx in range(args.n_envs):
-            current_successes[env_idx] |= bool(env_infos["success"][env_idx][0])
-            current_rewards[env_idx] += rewards[env_idx]
-            current_lengths[env_idx] += 1
-            # If episode ended, store results
-            if terminations[env_idx] or truncations[env_idx]:
-                episode_lengths.append(current_lengths[env_idx])
-                episode_successes.append(current_successes[env_idx])
-                current_successes[env_idx] = False
-                completed_episodes += 1
-                # Reset trackers for this environment
-                current_rewards[env_idx] = 0
-                current_lengths[env_idx] = 0
-                pbar.update(1)
-        obs = next_obs
+    stats = defaultdict(list)
+    env_horizon = get_env_horizon(env_name)
+    for i in trange(args.num_episodes):
+        pbar = tqdm(
+            total=env_horizon, desc=f"Episode {i + 1} / {env.unwrapped.get_ep_meta()['lang']}", leave=False
+        )
+        obs, info = env.reset()
+        done = False
+        step = 0
+        while not done:
+            action = policy.get_action(obs)
+            post_action = postprocess_action(action)
+            next_obs, reward, terminated, truncated, info = env.step(post_action)
+            done = terminated or truncated
+            step += args.action_horizon
+            obs = next_obs
+            pbar.update(args.action_horizon)
+        add_to(stats, flatten({"is_success": info["is_success"]}))
+        pbar.close()
 
-    pbar.close()
-    env.reset()
     env.close()
 
     print(f"Collecting {args.num_episodes} episodes took {time.time() - start_time:.2f} seconds")

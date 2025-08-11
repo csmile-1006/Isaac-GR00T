@@ -173,13 +173,13 @@ def eval_libero(args: Args) -> None:
                         element = {
                             "video.front_view": np.array([img]),
                             "video.left_wrist_view": np.array([wrist_img]),
-                            "state.eef_pos_absolute": obs["robot0_eef_pos"],  # GR00T requries [horizon, state_dim]
-                            "state.eef_rot_absolute": _quat2axisangle(obs["robot0_eef_quat"]),
-                            "state.gripper_close": obs["robot0_gripper_qpos"],
+                            "state.eef_pos_absolute": obs["robot0_eef_pos"].reshape(1, -1),  # GR00T requries [horizon, state_dim]
+                            "state.eef_rot_absolute": _quat2axisangle(obs["robot0_eef_quat"]).reshape(1, -1),
+                            "state.gripper_close": obs["robot0_gripper_qpos"].reshape(1, -1),
                             "annotation.human.action.task_description": [str(task_description)],
                         }
                         # Query model to get action
-                        action_chunk = client.infer(element)
+                        action_chunk = client.get_action(element)
                         action_chunk = np.concatenate(
                             [
                                 action_chunk["action.eef_pos_delta"],

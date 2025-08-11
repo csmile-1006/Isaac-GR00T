@@ -33,7 +33,7 @@ class DataCollectionWrapper(Wrapper):
         self.action_infos = []  # stores information about actions taken
         self.rewards = []
         self.dones = []
-        self.successful = False  # stores success state of demonstration
+        self.successes = []
 
         # how often to save simulation state, in terms of environment steps
         self.collect_freq = collect_freq
@@ -134,14 +134,14 @@ class DataCollectionWrapper(Wrapper):
             rewards=np.array(self.rewards),
             dones=np.array(self.dones),
             action_infos=self.action_infos,
-            successful=self.successful,
+            successes=np.array(self.successes),
             env=env_name,
         )
         self.states = []
         self.action_infos = []
         self.rewards = []
         self.dones = []
-        self.successful = False
+        self.successes = []
 
     def reset(self):
         """
@@ -193,10 +193,7 @@ class DataCollectionWrapper(Wrapper):
             self.action_infos.append(info)
             self.rewards.append(ret[1])
             self.dones.append(ret[2])
-
-        # check if the demonstration is successful
-        if self.env._check_success():
-            self.successful = True
+            self.successes.append(self.env._check_success())
 
         # flush collected data to disk if necessary
         if self.t % self.flush_freq == 0:

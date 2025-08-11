@@ -196,8 +196,6 @@ class FlowmatchingActionHead(nn.Module):
             hidden_dim=self.hidden_size,
             output_dim=self.action_dim,
         )
-        self.future_tokens = nn.Embedding(config.num_target_vision_tokens, self.input_embedding_dim)
-        nn.init.normal_(self.future_tokens.weight, mean=0.0, std=0.02)
 
         self.vlln = (
             nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
@@ -325,8 +323,7 @@ class FlowmatchingActionHead(nn.Module):
             action_features = action_features + pos_embs
 
         # Join vision, language, state and action embedding along sequence dimension.
-        future_tokens = self.future_tokens.weight.unsqueeze(0).expand(vl_embs.shape[0], -1, -1)
-        sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
+        sa_embs = torch.cat((state_features, action_features), dim=1)
 
         vl_attn_mask = backbone_output.backbone_attention_mask
 
@@ -390,8 +387,7 @@ class FlowmatchingActionHead(nn.Module):
                 action_features = action_features + pos_embs
 
             # Join vision, language, state and action embedding along sequence dimension.
-            future_tokens = self.future_tokens.weight.unsqueeze(0).expand(vl_embs.shape[0], -1, -1)
-            sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
+            sa_embs = torch.cat((state_features, action_features), dim=1)
 
             # Run model forward.
             model_output = self.model(
