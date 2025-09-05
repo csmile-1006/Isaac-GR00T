@@ -19,7 +19,6 @@ import json
 import os
 import time
 import warnings
-from collections import defaultdict
 from glob import glob
 from pathlib import Path
 
@@ -31,6 +30,7 @@ import robosuite
 from robocasa.utils.robomimic.robomimic_dataset_utils import convert_to_robomimic_format
 from robosuite.controllers import load_composite_controller_config
 from tqdm import tqdm
+from scipy.ndimage import gaussian_filter1d
 
 from gr00t.eval.robot import RobotInferenceClient
 from gr00t.eval.wrappers.robocasa_wrapper import load_robocasa_gym_env
@@ -132,14 +132,14 @@ def gather_demonstrations_as_hdf5(directory, out_dir, env_info, excluded_episode
             for i in range(len(states)):
                 if successes[i]:
                     break
-            states = states[:i+1]
-            actions = actions[:i+1]
+            states = states[: i + 1]
+            actions = actions[: i + 1]
             if len(actions_abs) > 0:
-                actions_abs = actions_abs[:i+1]
-            rewards = rewards[:i+1]
-            dones = successes[:i+1] # make dones same as successes
+                actions_abs = actions_abs[: i + 1]
+            rewards = rewards[: i + 1]
+            dones = successes[: i + 1]  # make dones same as successes
         else:
-            dones[-1] = True # make the last state a terminal state
+            dones[-1] = True  # make the last state a terminal state
 
         num_eps += 1
         ep_data_grp = grp.create_group("demo_{}".format(num_eps))
@@ -321,6 +321,20 @@ if __name__ == "__main__":
         help="Whether to use reward shaping",
     )
 
+    parser.add_argument(
+        "--noise",
+        type=float,
+        default=0.1,
+        help="Noise level for the state and action",
+    )
+
+    parser.add_argument(
+        "--noise_smoothing",
+        type=float,
+        default=0.2,
+        help="ACtion noise smoothing level.",
+    )
+
     args = parser.parse_args()
 
     data_config = DATA_CONFIG_MAP[args.data_config]
@@ -441,10 +455,27 @@ if __name__ == "__main__":
         desc=f"Evaluating {args.num_episodes} episodes",
         leave=False,
     )
+
+    noise_levels = {
+        "action.end_effector_position": 0.05,
+        "action.end_effector_rotation": 0.3,
+        "action.gripper_close": 1.0,
+        "action.base_motion": 0.5,
+        "action.control_mode": 1.0,
+    }
+
+    def add_noise(actions):
+        if args.noise > 0:
+            for key in actions.keys():
+                noise = np.random.normal(0, 1, size=actions[key].shape) * noise_levels[key] * args.noise
+                noise = np.clip(noise, -args.noise_smoothing, args.noise_smoothing)
+        return actions
+
     # Main simulation loop
     while completed_episodes < args.num_episodes:
         # Process observations and get actions from the server
         actions = policy.get_action(obs)
+        actions = add_noise(actions)
         # Step the environment
         next_obs, rewards, terminations, truncations, env_infos = env.step(actions)
         # Update episode tracking

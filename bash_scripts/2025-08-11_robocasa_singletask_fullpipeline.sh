@@ -1,24 +1,38 @@
 #!/bin/bash                                                                                                                                                  
 #SBATCH --comment="GR00T-N1.5-3B rollout for offline RL."
 #SBATCH --job-name=gr00t_n1_5_robocasa_rollout                                                                                                                                 
-#SBATCH --output=/virtual_lab/sjw_alinlab/changyeon/slurm-logs/grn15_rc_rollout/%j.out  # log                                                                                                   
-#SBATCH --error=/virtual_lab/sjw_alinlab/changyeon/slurm-logs/grn15_rc_rollout/%j.err   # log                                                                                                   
+#SBATCH --output=/virtual_lab/sjw_alinlab/changyeon/slurm-logs/grn15_rc_rl_rollout/%j.out  # log                                                                                                   
+#SBATCH --error=/virtual_lab/sjw_alinlab/changyeon/slurm-logs/grn15_rc_rl_rollout/%j.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gpus=1   # GPU 1개 사용                                                                                                                  
 #SBATCH --partition=batch
-#SBATCH --array=0-9
+#SBATCH --array=0-2
 
 TASK_NAMES=(
-    "CoffeeSetupMug"
-    "CoffeeServeMug"
-    "CoffeePressButton"
-    "TurnSinkSpout"
-    "TurnOnStove"
-    "TurnOnSinkFaucet"
+    # "CoffeeSetupMug"
+    # "CoffeeServeMug"
+    # "CoffeePressButton"
+    # "TurnSinkSpout"
+    # "TurnOnStove"
+    # "TurnOnSinkFaucet"
     "TurnOnMicrowave"
-    "TurnOffStove"
-    "TurnOffSinkFaucet"
-    "TurnOffMicrowave"
+    # "TurnOffStove"
+    # "TurnOffSinkFaucet"
+    # "TurnOffMicrowave"
+    # "PnPStoveToCounter"
+    # "PnPSinkToCounter"
+    "PnPMicrowaveToCounter"
+    # "PnPCounterToStove"
+    # "PnPCounterToSink"
+    # "PnPCounterToMicrowave"
+    # "PnPCounterToCab"
+    # "PnPCabToCounter"
+    "OpenSingleDoor"
+    # "OpenDrawer"
+    # "OpenDoubleDoor"
+    # "CloseSingleDoor"
+    # "CloseDrawer"
+    # "CloseDoubleDoor"
 )
 
 TASK_NAME=${TASK_NAMES[$SLURM_ARRAY_TASK_ID]}
@@ -32,7 +46,7 @@ ROOT_PATH=/virtual_lab/sjw_alinlab/changyeon/
 source ${ROOT_PATH}/miniconda3/bin/activate gr00t
 cd ${ROOT_PATH}/workspace/Isaac-GR00T
 
-BASE_PATH=${ROOT_PATH}/rollouts/gr00tn15_robocasa/
+BASE_PATH=${ROOT_PATH}/rl_rollouts/gr00tn15_robocasa/
 
 python scripts/eval_policy_robocasa.py \
     --host localhost \
@@ -46,6 +60,7 @@ python scripts/eval_policy_robocasa.py \
     --video_path ${BASE_PATH}/${TASK_NAME}/videos \
     --collect_data \
     --reward_shaping \
+    --noise 0.1 \
     --data_collection_path ${BASE_PATH}/${TASK_NAME}/data \
     --n_envs ${NUM_ENVS}
 
