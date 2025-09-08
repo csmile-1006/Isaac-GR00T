@@ -64,11 +64,11 @@ class ArgsConfig:
     base_model_path: str = "nvidia/GR00T-N1.5-3B"
     """Path or HuggingFace model ID for the base model."""
 
-    # tune_llm: bool = False
-    # """Whether to fine-tune the language model backbone."""
+    tune_llm: bool = False
+    """Whether to fine-tune the language model backbone."""
 
-    # tune_visual: bool = False
-    # """Whether to fine-tune the vision tower."""
+    tune_visual: bool = False
+    """Whether to fine-tune the vision tower."""
 
     tune_projector: bool = True
     """Whether to fine-tune the projector."""
@@ -180,8 +180,8 @@ def main(config: ArgsConfig):
     # ------------ step 2: load model ------------
     model = RL_Critic.from_pretrained(
         pretrained_model_name_or_path=config.base_model_path,
-        # tune_visual=config.tune_visual,
-        # tune_llm=config.tune_llm,
+        tune_visual=config.tune_visual,
+        tune_llm=config.tune_llm,
         tune_projector=config.tune_projector,  # action head's projector
         from_gr00t_n1_5=True,
     )

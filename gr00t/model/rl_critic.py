@@ -38,7 +38,7 @@ N_COLOR_CHANNELS = 3
 class RL_Critic_Config(PretrainedConfig):
     model_type = "rl_critic"
 
-    # backbone_cfg: dict = field(init=False, metadata={"help": "Backbone configuration."})
+    backbone_cfg: dict = field(init=False, metadata={"help": "Backbone configuration."})
     critic_cfg: dict = field(init=False, metadata={"help": "Critic configuration."})
     action_horizon: int = field(default=16, metadata={"help": "Action horizon."})
 
@@ -68,7 +68,7 @@ class RL_Critic(PreTrainedModel):
         config: RL_Critic_Config,
         local_model_path: str,
     ):
-        # assert isinstance(config.backbone_cfg, dict)
+        assert isinstance(config.backbone_cfg, dict)
         assert isinstance(config.critic_cfg, dict)
 
         super().__init__(config)
@@ -192,7 +192,7 @@ class RL_Critic(PreTrainedModel):
             new_cfg = RL_Critic_Config()
             pretrained_gr00t_n1_5_cfg = pretrained_gr00t_n1_5.config
 
-            # new_cfg.backbone_cfg = pretrained_gr00t_n1_5_cfg.backbone_cfg
+            new_cfg.backbone_cfg = pretrained_gr00t_n1_5_cfg.backbone_cfg
             # new_cfg.action_horizon = pretrained_gr00t_n1_5_cfg.action_horizon
             new_cfg.action_dim = pretrained_gr00t_n1_5_cfg.action_dim
             new_cfg.compute_dtype = pretrained_gr00t_n1_5_cfg.compute_dtype

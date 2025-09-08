@@ -296,6 +296,7 @@ class Critic(nn.Module):
         backbone_output = self.process_backbone_output(backbone_output)
         vl_embeds = backbone_output.backbone_features
         print(f"vl_embeds.shape: {vl_embeds.shape}")
+        raise ValueError("Stop here")
 
         # Get vision and language embeddings.
         embodiment_id = action_input.embodiment_id
