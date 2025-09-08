@@ -26,7 +26,7 @@ from gr00t.model.action_head.flow_matching_action_head import (
     CategorySpecificMLP,
     swish,
 )
-# from gr00t.model.action_head.cross_attention_dit import SelfAttentionTransformer
+from gr00t.model.action_head.cross_attention_dit import SelfAttentionTransformer
 
 
 class BroNet(torch.nn.Module):
@@ -218,14 +218,14 @@ class Critic(nn.Module):
             num_embodiments=config.max_num_embodiments,
         )
 
-        # self.vlln = (
-        #     nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
-        # )
-        # self.vl_self_attention = (
-        #     SelfAttentionTransformer(**config.vl_self_attention_cfg)
-        #     if config.use_vlln
-        #     else nn.Identity()
-        # )
+        self.vlln = (
+            nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
+        )
+        self.vl_self_attention = (
+            SelfAttentionTransformer(**config.vl_self_attention_cfg)
+            if config.use_vlln
+            else nn.Identity()
+        )
 
         self.value = Value(
             input_dim=self.input_embedding_dim,
@@ -282,20 +282,20 @@ class Critic(nn.Module):
     def prepare_input(self, batch: dict) -> BatchFeature:
         return BatchFeature(data=batch)
 
-    # def process_backbone_output(self, backbone_output: BatchFeature) -> BatchFeature:
-    #     backbone_features = backbone_output["backbone_features"]
-    #     backbone_features = self.vlln(backbone_features)
-    #     backbone_features = self.vl_self_attention(backbone_features)
-    #     backbone_output["backbone_features"] = backbone_features
-    #     return backbone_output
+    def process_backbone_output(self, backbone_output: BatchFeature) -> BatchFeature:
+        backbone_features = backbone_output["backbone_features"]
+        backbone_features = self.vlln(backbone_features)
+        backbone_features = self.vl_self_attention(backbone_features)
+        backbone_output["backbone_features"] = backbone_features
+        return backbone_output
 
-    def forward(self, action_input: BatchFeature) -> BatchFeature:
+    def forward(self, backbone_output: BatchFeature, action_input: BatchFeature) -> BatchFeature:
         # Set frozen modules to eval
         self.set_frozen_modules_to_eval_mode()
 
-        # backbone_output = self.process_backbone_output(backbone_output)
-
-        # vl_embeds = backbone_output.backbone_features
+        backbone_output = self.process_backbone_output(backbone_output)
+        vl_embeds = backbone_output.backbone_features
+        print(f"vl_embeds.shape: {vl_embeds.shape}")
 
         # Get vision and language embeddings.
         embodiment_id = action_input.embodiment_id
@@ -311,6 +311,8 @@ class Critic(nn.Module):
                 q = torch.minimum(q1, q2)
             elif self.config.q_agg == "mean":
                 q = (q1 + q2) / 2
+            else:
+                assert False, f"Invalid q_agg: {self.config.q_agg}"
 
         v = self.value(state_features)
         value_loss = self.expectile_loss(q - v, q - v, self.config.expectile)

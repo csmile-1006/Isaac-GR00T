@@ -24,7 +24,7 @@ from huggingface_hub.errors import HFValidationError, RepositoryNotFoundError
 from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 
-# from .backbone import EagleBackbone
+from .backbone import EagleBackbone
 from .critic.critic import Critic, CriticConfig
 from .gr00t_n1 import GR00T_N1_5
 
@@ -74,7 +74,7 @@ class RL_Critic(PreTrainedModel):
         super().__init__(config)
         self.local_model_path = local_model_path
 
-        # self.backbone = EagleBackbone(**config.backbone_cfg)
+        self.backbone = EagleBackbone(**config.backbone_cfg)
         critic_cfg = CriticConfig(**config.critic_cfg)
         self.critic = Critic(critic_cfg)
 
@@ -135,16 +135,16 @@ class RL_Critic(PreTrainedModel):
         self,
         inputs: dict,
     ) -> BatchFeature:
-        # backbone_inputs, critic_inputs = self.prepare_input(inputs)
-        # backbone_outputs = self.backbone(backbone_inputs)
+        backbone_inputs, critic_inputs = self.prepare_input(inputs)
+        backbone_outputs = self.backbone(backbone_inputs)
         critic_inputs = self.prepare_input(inputs)
-        critic_outputs = self.critic(critic_inputs)
+        critic_outputs = self.critic(backbone_outputs, critic_inputs)
         self.validate_data(critic_outputs, is_training=True)
         return critic_outputs
 
     def prepare_input(self, inputs) -> Tuple[BatchFeature, BatchFeature]:
         self.validate_inputs(inputs)
-        # backbone_inputs = self.backbone.prepare_input(inputs)
+        backbone_inputs = self.backbone.prepare_input(inputs)
         critic_inputs = self.critic.prepare_input(inputs)
 
         def to_device_with_maybe_dtype(x):
@@ -155,14 +155,14 @@ class RL_Critic(PreTrainedModel):
                 # Keep original dtype
                 return x.to(self.device)
 
-        # backbone_inputs = tree.map_structure(to_device_with_maybe_dtype, backbone_inputs)
+        backbone_inputs = tree.map_structure(to_device_with_maybe_dtype, backbone_inputs)
         critic_inputs = tree.map_structure(to_device_with_maybe_dtype, critic_inputs)
-        return critic_inputs
+        return backbone_inputs, critic_inputs
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path: str, from_gr00t_n1_5: bool = False, **kwargs):
-        # tune_visual = kwargs.pop("tune_visual", True)
-        # tune_llm = kwargs.pop("tune_llm", False)
+        tune_visual = kwargs.pop("tune_visual", False)
+        tune_llm = kwargs.pop("tune_llm", False)
         tune_projector = kwargs.pop("tune_projector", True)
 
         print(f"Loading pretrained dual brain from {pretrained_model_name_or_path}")
@@ -219,8 +219,8 @@ class RL_Critic(PreTrainedModel):
                 local_model_path=pretrained_gr00t_n1_5.local_model_path,
             )
 
-            # print("Loading backbone parameters")
-            # pretrained_model.backbone.load_state_dict(pretrained_gr00t_n1_5.backbone.state_dict())
+            print("Loading backbone parameters")
+            pretrained_model.backbone.load_state_dict(pretrained_gr00t_n1_5.backbone.state_dict())
 
             # Transfer parameters from pretrained GR00T_N1_5 model
 
@@ -230,7 +230,7 @@ class RL_Critic(PreTrainedModel):
                 )
 
             # Set trainable parameters according to flags
-            # pretrained_model.backbone.set_trainable_parameters(tune_visual=tune_visual, tune_llm=tune_llm)
+            pretrained_model.backbone.set_trainable_parameters(tune_visual=tune_visual, tune_llm=tune_llm)
             pretrained_model.critic.set_trainable_parameters(tune_projector=tune_projector)
 
             del pretrained_gr00t_n1_5

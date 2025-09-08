@@ -11,20 +11,19 @@
 
 TASK_NAME=$1
 NUM_DEMOS=$2
-CHECKPOINT=$3
-STEPS=$4
-NUM_EPISODES=$5
+STEPS=$3
 
-source /home/changyeon/miniconda3/bin/activate gr00t
-cd /home/changyeon/workspace/Isaac-GR00T
+BASE_PATH=/virtual_lab/sjw_alinlab/changyeon/
+source ${BASE_PATH}/miniconda3/bin/activate gr00t
+cd ${BASE_PATH}/workspace/Isaac-GR00T
 
 # --dataset-path /mnt/nas/slurm_account/visitor_jw/gr00t_dataset/single_panda_gripper.${TASK_NAME} \
 # --data-config single_panda_gripper_state_rl \
 python scripts/train_rl_critic.py \
-    --dataset-path ~/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/ ~/evaluation/gr00t_n1_5/rl_test/${TASK_NAME}_num${NUM_EPISODES}_as16/lerobot/ \
-    --base-model-path ~/gr00t_n1_5_ckpt/step${CHECKPOINT}_${TASK_NAME}_num${NUM_DEMOS}_single_panda_gripper/checkpoint-${CHECKPOINT} \
+    --dataset-path ${BASE_PATH}/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/ \
+    --base-model-path ${BASE_PATH}/ckpts/gr00tn15_robocasa/checkpoint-60000 \
     --num-gpus 1 \
-    --output-dir ~/debug/critic_ckpt/step${STEPS}_${TASK_NAME}_num${NUM_DEMOS}_single_panda_gripper \
+    --output-dir ${BASE_PATH}/debug/critic_ckpt/step${STEPS}_${TASK_NAME}_num${NUM_DEMOS}_single_panda_gripper \
     --max-steps ${STEPS} \
     --data-config single_panda_gripper_rl \
     --batch-size 4 \
