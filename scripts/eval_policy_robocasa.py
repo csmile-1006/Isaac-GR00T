@@ -30,7 +30,6 @@ import robosuite
 from robocasa.utils.robomimic.robomimic_dataset_utils import convert_to_robomimic_format
 from robosuite.controllers import load_composite_controller_config
 from tqdm import tqdm
-from scipy.ndimage import gaussian_filter1d
 
 from gr00t.eval.robot import RobotInferenceClient
 from gr00t.eval.wrappers.robocasa_wrapper import load_robocasa_gym_env
