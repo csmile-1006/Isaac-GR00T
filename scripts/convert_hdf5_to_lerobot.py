@@ -428,9 +428,6 @@ class LeRobotFormatter:
         self._write_episode_metadata(task_inst, episode_length)
         self._update_episode_info(buffer["size"])
 
-        # Verify files
-        self._verify_files()
-
         return buffer
 
     def _save_episode_table(self, buffer: dict, episode_index: int):
@@ -483,7 +480,7 @@ class LeRobotFormatter:
             if video_path.is_file():
                 continue
 
-            images = demo["obs"][self.reverse_video_mapping[key]]
+            images = demo["obs"][self.reverse_video_mapping[key]][:]
 
             # Queue video encoding task
             task_args = (
@@ -517,22 +514,22 @@ class LeRobotFormatter:
         task_mapping = {}
         task_args_list = []
 
-        for episode_index, key, task_args in self.video_encoding_tasks:
-            task_mapping[task_args] = (episode_index, key)
+        for idx, (episode_index, key, task_args) in enumerate(self.video_encoding_tasks):
+            task_mapping[idx] = (episode_index, key)
             task_args_list.append(task_args)
 
         # Process videos in parallel
         with ProcessPoolExecutor(max_workers=self.num_video_workers) as executor:
             # Submit all tasks
             future_to_task = {
-                executor.submit(encode_video_worker, task_args): task_args for task_args in task_args_list
+                executor.submit(encode_video_worker, task_args): idx for idx, task_args in enumerate(task_args_list)
             }
 
             # Collect results with progress bar
             with tqdm(total=len(future_to_task), desc="Encoding videos") as pbar:
                 for future in as_completed(future_to_task):
-                    task_args = future_to_task[future]
-                    episode_index, key = task_mapping[task_args]
+                    idx = future_to_task[future]
+                    episode_index, key = task_mapping[idx]
 
                     try:
                         output_path, success = future.result()
@@ -580,6 +577,9 @@ class LeRobotFormatter:
                 raise RuntimeError("Some videos failed to encode")
 
             logging.info("All videos encoded successfully!")
+
+        # Step 3: Verify all files were created successfully
+        self._verify_files()
 
 
 if __name__ == "__main__":

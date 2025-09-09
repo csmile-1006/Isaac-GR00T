@@ -488,11 +488,14 @@ if __name__ == "__main__":
                 episode_successes.append(current_successes[env_idx])
                 if current_successes[env_idx]:
                     completed_episodes += 1
+                    pbar.update(1)
+                    pbar.set_postfix({"success demos": completed_episodes})
+                    if completed_episodes >= args.num_episodes:
+                        break
                 current_successes[env_idx] = False
                 # Reset trackers for this environment
                 current_rewards[env_idx] = 0
                 current_lengths[env_idx] = 0
-                pbar.update(1)
         obs = next_obs
 
     pbar.close()
