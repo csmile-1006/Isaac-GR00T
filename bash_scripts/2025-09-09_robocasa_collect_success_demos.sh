@@ -4,31 +4,32 @@
 #SBATCH --error=/home/changyeon/slurm-logs/gr00tn15_rc_collect_demos/%j.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gpus=1   # GPU 1개 사용                                                                                                                  
-#SBATCH --array=0-2
+#SBATCH --array=0-0
 #SBATCH --cpus-per-gpu=16     # GPU당 CPU 사용 수                                                                                                             
-#SBATCH --mem-per-gpu=16G    # GPU당 mem 사용량                                                                                                              
+#SBATCH --mem-per-gpu=128G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
 
 TASK_NAMES=(
-    # "CoffeeSetupMug"
+    # "CoffeeServeMug"
+    "CoffeeSetupMug"
     # "CoffeeServeMug"
     # "CoffeePressButton"
     # "TurnSinkSpout"
     # "TurnOnStove"
     # "TurnOnSinkFaucet"
-    "TurnOnMicrowave"
+    # "TurnOnMicrowave"
     # "TurnOffStove"
     # "TurnOffSinkFaucet"
     # "TurnOffMicrowave"
     # "PnPStoveToCounter"
     # "PnPSinkToCounter"
-    "PnPMicrowaveToCounter"
+    # "PnPMicrowaveToCounter"
     # "PnPCounterToStove"
     # "PnPCounterToSink"
     # "PnPCounterToMicrowave"
     # "PnPCounterToCab"
     # "PnPCabToCounter"
-    "OpenSingleDoor"
+    # "OpenSingleDoor"
     # "OpenDrawer"
     # "OpenDoubleDoor"
     # "CloseSingleDoor"
@@ -39,11 +40,10 @@ TASK_NAMES=(
 TASK_NAME=${TASK_NAMES[$SLURM_ARRAY_TASK_ID]}
 
 ACTION_HORIZON=16
-TASK_NAME=$1
-NUM_ENVS=$2
-NUM_ROLLOUTS=$3
-SERVER=${4:-"alin_slurm"}
-NUM_PROCS=${5:-4}
+NUM_ENVS=$1
+NUM_ROLLOUTS=$2
+SERVER=${3:-"alin_slurm"}
+NUM_PROCS=${4:-4}
 
 if [ "$SERVER" == "rlwrld" ]; then
     ROOT_PATH=/virtual_lab/sjw_alinlab/changyeon/
