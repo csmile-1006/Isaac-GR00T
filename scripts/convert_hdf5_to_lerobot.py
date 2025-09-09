@@ -588,7 +588,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", type=str, required=True)
     parser.add_argument("--task_name", type=str, required=True)
     parser.add_argument("--chunks_size", type=int, default=300)
-    parser.add_argument("--meta_path", type=str, default="meta/info.json")
+    parser.add_argument("--meta_path", type=str, default="assets/robocasa/meta")
     parser.add_argument("--num_episodes", type=int, default=None)
     parser.add_argument(
         "--num_video_workers", type=int, default=4, help="Number of parallel workers for video encoding"
