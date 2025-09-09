@@ -330,7 +330,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--noise_smoothing",
         type=float,
-        default=0.2,
+        default=0.3,
         help="ACtion noise smoothing level.",
     )
 

@@ -70,12 +70,12 @@ python scripts/collect_demo_robocasa.py \
     --collect_data \
     --reward_shaping \
     --noise 0.0 \
-    --data_collection_path ${BASE_PATH}/${TASK_NAME}/data \
+    --data_collection_path ${BASE_PATH}/${TASK_NAME}_num${NUM_ROLLOUTS}/data \
     --n_envs ${NUM_ENVS}
 
 cd ${ROOT_PATH}/workspace/robocasa
 OMP_NUM_THREADS=1 MPI_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python robocasa/scripts/dataset_states_to_obs_robust.py \
-    --dataset ${BASE_PATH}/${TASK_NAME}/data/demo.hdf5 \
+    --dataset ${BASE_PATH}/${TASK_NAME}_num${NUM_ROLLOUTS}/data/demo.hdf5 \
     --camera_width 256 \
     --camera_height 256 \
     --generative_textures \
@@ -85,8 +85,8 @@ OMP_NUM_THREADS=1 MPI_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 pyt
 
 cd ${ROOT_PATH}/workspace/Isaac-GR00T
 python scripts/convert_hdf5_to_lerobot.py \
-    --src_hdf5_path ${BASE_PATH}/${TASK_NAME}/data/demo_gentex_im256_randcams.hdf5 \
-    --output_path ${BASE_PATH}/${TASK_NAME}/lerobot \
+    --src_hdf5_path ${BASE_PATH}/${TASK_NAME}_num${NUM_ROLLOUTS}/data/demo_gentex_im256_randcams.hdf5 \
+    --output_path ${BASE_PATH}/${TASK_NAME}_num${NUM_ROLLOUTS}/lerobot \
     --task_name ${TASK_NAME} \
     --chunks_size 1000 \
     --num_episodes ${NUM_ROLLOUTS} \
