@@ -11,7 +11,7 @@
 TASK_NAME=$1
 NUM_DEMOS=$2
 NUM_ROLLOUTS=$3
-STEPS=$3
+STEPS=$4
 
 BASE_PATH=/home/changyeon/
 CKPT_PATH=${BASE_PATH}/ckpts/gr00tn15_rbcs_bs32_60k
