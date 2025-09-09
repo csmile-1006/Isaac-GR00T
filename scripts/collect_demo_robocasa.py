@@ -486,9 +486,9 @@ if __name__ == "__main__":
             if terminations[env_idx] or truncations[env_idx]:
                 episode_lengths.append(current_lengths[env_idx])
                 episode_successes.append(current_successes[env_idx])
-                current_successes[env_idx] = False
-                if current_successes[env_idx] > 0:
+                if current_successes[env_idx]:
                     completed_episodes += 1
+                current_successes[env_idx] = False
                 # Reset trackers for this environment
                 current_rewards[env_idx] = 0
                 current_lengths[env_idx] = 0

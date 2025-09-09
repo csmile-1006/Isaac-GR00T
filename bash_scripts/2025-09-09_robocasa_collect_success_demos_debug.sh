@@ -14,7 +14,7 @@ fi
 source ${ROOT_PATH}/miniconda3/bin/activate gr00t
 cd ${ROOT_PATH}/workspace/Isaac-GR00T
 
-BASE_PATH=${ROOT_PATH}/gr00tn15_robocasa/rollout_demos/
+BASE_PATH=${ROOT_PATH}/debug/gr00tn15_robocasa/rollout_demos/
 CKPT_PATH=${ROOT_PATH}/ckpts/gr00tn15_rbcs_bs32_60k
 
 python scripts/collect_demo_robocasa.py \
