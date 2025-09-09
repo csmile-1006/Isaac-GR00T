@@ -10,6 +10,7 @@
 
 TASK_NAME=$1
 NUM_DEMOS=$2
+NUM_ROLLOUTS=$3
 STEPS=$3
 
 BASE_PATH=/home/changyeon/
@@ -20,9 +21,9 @@ cd ${BASE_PATH}/workspace/Isaac-GR00T
 python scripts/gr00t_finetune.py \
     --base_model_path ${CKPT_PATH} \
     --dataset-path "${BASE_PATH}/data/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/" \
-                   "${BASE_PATH}/gr00tn15_robocasa/rollouts/${TASK_NAME}_num${NUM_DEMOS}/lerobot/" \
+                   "${BASE_PATH}/gr00tn15_robocasa/rollouts/${TASK_NAME}_num${NUM_ROLLOUTS}/lerobot/" \
     --num-gpus 2 \
-    --output-dir "${BASE_PATH}/ckpts/ALL-FT/step${STEPS}_${TASK_NAME}_num${NUM_DEMOS}" \
+    --output-dir "${BASE_PATH}/ckpts/ALL-FT/step${STEPS}_${TASK_NAME}_demos${NUM_DEMOS}_rollouts${NUM_ROLLOUTS}" \
     --max-steps "${STEPS}" \
     --data-config single_panda_gripper \
     --batch-size 16 \
