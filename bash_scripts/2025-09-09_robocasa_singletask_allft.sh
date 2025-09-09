@@ -1,7 +1,7 @@
 #!/bin/bash                                                                                                                                                  
-#SBATCH --job-name=gr00tn15_rc_single_sil                                                                                                                                 
-#SBATCH --output=/home/changyeon/slurm-logs/gr00tn15_rc_single_sil/%j.out  # log                                                                                                   
-#SBATCH --error=/home/changyeon/slurm-logs/gr00tn15_rc_single_sil/%j.err   # log                                                                                                   
+#SBATCH --job-name=gr00tn15_rc_single_allft                                                                                                                                 
+#SBATCH --output=/home/changyeon/slurm-logs/gr00tn15_rc_single_allft/%j.out  # log                                                                                                   
+#SBATCH --error=/home/changyeon/slurm-logs/gr00tn15_rc_single_allft/%j.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gres=gpu:a6000:2   # GPU 1개 사용                                                                                                                  
 #SBATCH --cpus-per-gpu=8     # GPU당 CPU 사용 수                                                                                                             
