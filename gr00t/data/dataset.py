@@ -378,7 +378,7 @@ class LeRobotSingleDataset(Dataset):
         # 3. Next state and video modalities: same as state and video modalities
         if self.use_rl:
             simplified_modality_meta["next_state"] = simplified_modality_meta["state"]
-            # simplified_modality_meta["next_video"] = simplified_modality_meta["video"]
+            simplified_modality_meta["next_video"] = simplified_modality_meta["video"]
 
         # 4. Full dataset metadata
         if self.use_rl:

@@ -190,6 +190,10 @@ class RLConcatTransform(ConcatTransform):
         default=None,
         description="Concatenation order for each next state modality. Format: ['next_state.position', 'next_state.velocity', ...].",
     )
+    next_video_concat_order: list[str] = Field(
+        default_factory=list,
+        description="Concatenation order for each next video modality. Format: ['next_video.ego_view_pad_res224_freq20', ...]",
+    )
 
     next_state_dims: dict[str, int] = Field(
         default_factory=dict,
@@ -203,6 +207,7 @@ class RLConcatTransform(ConcatTransform):
                 "video_concat_order",
                 "state_concat_order",
                 "next_state_concat_order",
+                "next_video_concat_order",
                 "action_concat_order",
             }
         else:
@@ -211,11 +216,70 @@ class RLConcatTransform(ConcatTransform):
         return super().model_dump(*args, include=include, **kwargs)
 
     def apply(self, data: dict) -> dict:
-        data = super().apply(data)
+        grouped_keys = {}
+        for key in data.keys():
+            try:
+                modality, _ = key.split(".")
+            except:  # noqa: E722
+                modality = "language" if "annotation" in key else "others"
+            if modality not in grouped_keys:
+                grouped_keys[modality] = []
+            grouped_keys[modality].append(key)
+
+        if "video" in grouped_keys:
+            video_keys = grouped_keys["video"]
+            assert self.video_concat_order is not None
+            assert all(item in video_keys for item in self.video_concat_order), (
+                f"keys in video_concat_order are misspecified, \n{video_keys=}, \n{self.video_concat_order=}"
+            )
+
+            unsqueezed_videos = [np.expand_dims(data.pop(key), axis=-4) for key in self.video_concat_order]
+            data["video"] = np.concatenate(unsqueezed_videos, axis=-4)  # [..., V, H, W, C]
+
+        if "state" in grouped_keys:
+            state_keys = grouped_keys["state"]
+            assert self.state_concat_order is not None
+            assert all(item in state_keys for item in self.state_concat_order), (
+                f"keys in state_concat_order are misspecified, \n{state_keys=}, \n{self.state_concat_order=}"
+            )
+
+            for key in self.state_concat_order:
+                target_shapes = [self.state_dims[key]]
+                if self.is_rotation_key(key):
+                    target_shapes.append(6)  # Allow for rotation_6d
+                target_shapes.append(self.state_dims[key] * 2)  # Allow for sin-cos transform
+                assert data[key].shape[-1] in target_shapes, f"State dim mismatch for {key=}"
+
+            data["state"] = torch.cat([data.pop(key) for key in self.state_concat_order], dim=-1)
+
+        if "action" in grouped_keys:
+            action_keys = grouped_keys["action"]
+            assert self.action_concat_order is not None
+            assert set(self.action_concat_order) == set(action_keys)
+
+            for key in self.action_concat_order:
+                target_shapes = [self.action_dims[key]]
+                if self.is_rotation_key(key):
+                    target_shapes.append(3)  # Allow for axis angle
+                assert data[key].shape[-1] in target_shapes, f"Action dim mismatch for {key=}"
+
+            data["action"] = torch.cat([data.pop(key) for key in self.action_concat_order], dim=-1)
+
+        if "next_video" in grouped_keys:
+            assert self.next_video_concat_order is not None
+            next_video_keys = grouped_keys["next_video"]
+            assert all(
+                item in next_video_keys for item in self.next_video_concat_order
+            ), "Keys in next_video_concat_order are misspecified"
+
+            unsqueezed_videos = [
+                np.expand_dims(data.pop(key), axis=-4) for key in self.next_video_concat_order
+            ]
+            data["next_video"] = np.concatenate(unsqueezed_videos, axis=-4)  # [..., V, H, W, C]
 
         if "next_state" in data:
             assert self.next_state_concat_order is not None
-            next_state_keys = [k for k in data.keys() if k.startswith("next_state")]
+            next_state_keys = grouped_keys["next_state"]
             assert all(
                 item in next_state_keys for item in self.next_state_concat_order
             ), "Keys in next_state_concat_order are misspecified"

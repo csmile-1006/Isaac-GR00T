@@ -97,14 +97,14 @@ class EagleBackbone(nn.Module):
     def prepare_input(self, batch: dict) -> BatchFeature:
         return BatchFeature(data=batch)
 
-    def forward_eagle(self, vl_input: BatchFeature) -> BatchFeature:
-        eagle_prefix = "eagle_"
+    def forward_eagle(self, vl_input: BatchFeature, eagle_prefix: str = "eagle_") -> BatchFeature:
         eagle_input = {
             k.removeprefix(eagle_prefix): v
             for k, v in vl_input.items()
             if k.startswith(eagle_prefix)
         }
-        del eagle_input["image_sizes"]
+        if "image_sizes" in eagle_input:
+            del eagle_input["image_sizes"]
 
         eagle_output = self.eagle_model(**eagle_input, output_hidden_states=True, return_dict=True)
         eagle_features = eagle_output.hidden_states[self.select_layer]
@@ -112,10 +112,10 @@ class EagleBackbone(nn.Module):
         eagle_features = self.eagle_linear(eagle_features)
         return eagle_features, eagle_input["attention_mask"]
 
-    def forward(self, vl_input: BatchFeature) -> BatchFeature:
+    def forward(self, vl_input: BatchFeature, eagle_prefix: str = "eagle_") -> BatchFeature:
         self.set_frozen_modules_to_eval_mode()
 
-        eagle_embeds, eagle_mask = self.forward_eagle(vl_input)
+        eagle_embeds, eagle_mask = self.forward_eagle(vl_input, eagle_prefix)
 
         # YL (TODO HACK): to resolve DDP issue when tune_visual=True
         # Ensure all trainable parameters in vision_model are used in the forward pass for DDP compatibility

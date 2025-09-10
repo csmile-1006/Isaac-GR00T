@@ -25,10 +25,10 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 
-from .action_head.dual_flow_matching_action_head import (
+from .action_head.fql_action_head import (
     CriticConfig,
-    DualFlowmatchingActionHead,
-    DualFlowmatchingActionHeadConfig,
+    FQLActionHead,
+    FQLActionHeadConfig,
 )
 from .backbone import EagleBackbone
 from .gr00t_n1 import GR00T_N1_5
@@ -42,8 +42,8 @@ N_COLOR_CHANNELS = 3
 
 # config
 @dataclass
-class GR00T_N1_5_RL_Config(PretrainedConfig):
-    model_type = "gr00t_n1_5_rl"
+class GR00T_N1_5_FQL_Config(PretrainedConfig):
+    model_type = "gr00t_n1_5_fql"
     backbone_cfg: dict = field(init=False, metadata={"help": "Backbone configuration."})
 
     action_head_cfg: dict = field(init=False, metadata={"help": "Action head configuration."})
@@ -60,9 +60,9 @@ class GR00T_N1_5_RL_Config(PretrainedConfig):
 
 
 # real model
-class GR00T_N1_5_RL(PreTrainedModel):
+class GR00T_N1_5_FQL(PreTrainedModel):
     supports_gradient_checkpointing = True
-    config_class = GR00T_N1_5_RL_Config
+    config_class = GR00T_N1_5_FQL_Config
     """
     we expect the backbone output to have a key 'backbone_features' with shape (batch_size, n, hidden_size)
     here n is variable and can be e.g. time, 1 or user specified
@@ -72,7 +72,7 @@ class GR00T_N1_5_RL(PreTrainedModel):
 
     def __init__(
         self,
-        config: GR00T_N1_5_RL_Config,
+        config: GR00T_N1_5_FQL_Config,
         local_model_path: str,
     ):
         assert isinstance(config.backbone_cfg, dict)
@@ -82,8 +82,8 @@ class GR00T_N1_5_RL(PreTrainedModel):
         self.local_model_path = local_model_path
 
         self.backbone = EagleBackbone(**config.backbone_cfg)
-        action_head_cfg = DualFlowmatchingActionHeadConfig(**config.action_head_cfg)
-        self.action_head = DualFlowmatchingActionHead(action_head_cfg)
+        action_head_cfg = FQLActionHeadConfig(**config.action_head_cfg)
+        self.action_head = FQLActionHead(action_head_cfg)
 
         self.action_horizon = config.action_horizon
         self.action_dim = config.action_dim
@@ -126,7 +126,7 @@ class GR00T_N1_5_RL(PreTrainedModel):
         if detected_error:
             raise ValueError(error_msg)
 
-    def validate_data(self, action_head_outputs, backbone_outputs, is_training):
+    def validate_data(self, action_head_outputs, backbone_outputs, next_backbone_outputs=None, is_training=True):
         fail_backbone = not isinstance(backbone_outputs, BatchFeature) or BACKBONE_FEATURE_KEY not in backbone_outputs
 
         if fail_backbone:
@@ -136,11 +136,23 @@ class GR00T_N1_5_RL(PreTrainedModel):
             error_msg += f"\n{backbone_outputs[BACKBONE_FEATURE_KEY].shape=}"
             raise ValueError(error_msg)
 
+        fail_next_backbone = next_backbone_outputs is not None and (
+            not isinstance(next_backbone_outputs, BatchFeature) or BACKBONE_FEATURE_KEY not in next_backbone_outputs
+        )
+
+        if fail_next_backbone:
+            error_msg = ERROR_MSG
+            error_msg += f"\n{isinstance(next_backbone_outputs, BatchFeature)=}"
+            error_msg += f"\n{BACKBONE_FEATURE_KEY in next_backbone_outputs=}"
+            error_msg += f"\n{next_backbone_outputs[BACKBONE_FEATURE_KEY].shape=}"
+            raise ValueError(error_msg)
+
         fail_action_head = (not isinstance(action_head_outputs, BatchFeature)) or not (
             (LOSS_KEY in action_head_outputs and is_training)  # there might not be an action prediction during training
             or (
                 ACTION_KEY in action_head_outputs
-                and action_head_outputs[ACTION_KEY].shape[1] == self.action_horizon
+                and action_head_outputs[ACTION_KEY].shape[1]
+                == 1  # FQL must output single action which is based on policy gradient
                 and action_head_outputs[ACTION_KEY].shape[2] == self.action_dim
             )
         )
@@ -160,8 +172,9 @@ class GR00T_N1_5_RL(PreTrainedModel):
     ) -> BatchFeature:
         backbone_inputs, action_inputs = self.prepare_input(inputs)
         backbone_outputs = self.backbone(backbone_inputs)
-        action_head_outputs = self.action_head(backbone_outputs, action_inputs)
-        self.validate_data(action_head_outputs, backbone_outputs, is_training=True)
+        next_backbone_outputs = self.backbone(backbone_inputs, eagle_prefix="next_eagle_")
+        action_head_outputs = self.action_head(backbone_outputs, next_backbone_outputs, action_inputs)
+        self.validate_data(action_head_outputs, backbone_outputs, next_backbone_outputs, is_training=True)
         return action_head_outputs
 
     def get_action(
@@ -198,6 +211,7 @@ class GR00T_N1_5_RL(PreTrainedModel):
         tune_llm = kwargs.pop("tune_llm", False)
         tune_projector = kwargs.pop("tune_projector", True)
         tune_diffusion_model = kwargs.pop("tune_diffusion_model", True)
+        tune_critic = kwargs.pop("tune_critic", True)
 
         print(f"Loading pretrained dual brain from {pretrained_model_name_or_path}")
         print(f"Tune backbone vision tower: {tune_visual}")
@@ -229,14 +243,14 @@ class GR00T_N1_5_RL(PreTrainedModel):
         else:
             pretrained_gr00t_n1_5 = GR00T_N1_5.from_pretrained(pretrained_model_name_or_path, **kwargs)
 
-            new_cfg = GR00T_N1_5_RL_Config()
+            new_cfg = GR00T_N1_5_FQL_Config()
             pretrained_gr00t_n1_5_cfg = pretrained_gr00t_n1_5.config.to_dict()
             for key, value in pretrained_gr00t_n1_5_cfg.items():
                 if key != "action_head_cfg":
                     setattr(new_cfg, key, value)
 
             # Transfer action head config
-            action_head_cfg = DualFlowmatchingActionHeadConfig(**pretrained_gr00t_n1_5_cfg["action_head_cfg"])
+            action_head_cfg = FQLActionHeadConfig(**pretrained_gr00t_n1_5_cfg["action_head_cfg"])
             critic_cfg = CriticConfig()
             for key in critic_cfg.to_dict().keys():
                 if key in pretrained_gr00t_n1_5_cfg["action_head_cfg"].keys():
@@ -261,9 +275,9 @@ class GR00T_N1_5_RL(PreTrainedModel):
                 "onestep_model": "model",  # Uses same model
                 "state_encoder": "state_encoder",
                 "action_encoder": "action_encoder",
-                "onestep_action_encoder": "action_encoder", # Uses same model
+                "onestep_action_encoder": "action_encoder",  # Uses same model
                 "action_decoder": "action_decoder",
-                "onestep_action_decoder": "action_decoder", # Uses same model
+                "onestep_action_decoder": "action_decoder",  # Uses same model
                 "vlln": "vlln",
                 "vl_self_attention": "vl_self_attention",
             }
@@ -272,13 +286,13 @@ class GR00T_N1_5_RL(PreTrainedModel):
                 full_src = pretrained_gr00t_n1_5.action_head.state_dict()
 
                 for comp_name, prefix in tqdm(action_head_components.items(), desc="Loading action head parameters"):
-                    subdict = {k[len(prefix) + 1:]: v for k, v in full_src.items() if k.startswith(prefix)}
+                    subdict = {k[len(prefix) + 1 :]: v for k, v in full_src.items() if k.startswith(prefix)}
                     getattr(pretrained_model.action_head, comp_name).load_state_dict(subdict)
 
             # Set trainable parameters according to flags
             pretrained_model.backbone.set_trainable_parameters(tune_visual=tune_visual, tune_llm=tune_llm)
             pretrained_model.action_head.set_trainable_parameters(
-                tune_projector=tune_projector, tune_diffusion_model=tune_diffusion_model
+                tune_projector=tune_projector, tune_diffusion_model=tune_diffusion_model, tune_critic=tune_critic
             )
 
             del pretrained_gr00t_n1_5
@@ -286,5 +300,5 @@ class GR00T_N1_5_RL(PreTrainedModel):
 
 
 # register
-AutoConfig.register("gr00t_n1_5_rl", GR00T_N1_5_RL_Config)
-AutoModel.register(GR00T_N1_5_RL_Config, GR00T_N1_5_RL)
+AutoConfig.register("gr00t_n1_5_fql", GR00T_N1_5_FQL_Config)
+AutoModel.register(GR00T_N1_5_FQL_Config, GR00T_N1_5_FQL)

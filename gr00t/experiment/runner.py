@@ -21,7 +21,7 @@ import torch
 from transformers import TrainingArguments, set_seed
 
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
-from gr00t.experiment.trainer import DualBrainTrainer, DualBrainRLTrainer
+from gr00t.experiment.trainer import DualBrainTrainer, DualBrainFQLTrainer
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 from gr00t.model.transforms import DefaultDataCollator
 from gr00t.utils.experiment import (
@@ -37,6 +37,7 @@ class TrainRunner:
         model: GR00T_N1_5,
         training_args: TrainingArguments,
         train_dataset: LeRobotSingleDataset | LeRobotMixtureDataset,
+        optimizers: tuple[torch.optim.Optimizer, torch.optim.Optimizer] = None,
         resume_from_checkpoint: bool = False,
     ):
         self.training_args = training_args
@@ -64,6 +65,7 @@ class TrainRunner:
             training_args=training_args,
             train_dataset=train_dataset,
             data_collator=data_collator,
+            optimizers=optimizers,
             compute_dtype=compute_dtype,
         )
         self.trainer = trainer
@@ -128,6 +130,7 @@ class TrainRunner:
         train_dataset,
         data_collator,
         compute_dtype,
+        optimizers=None,
         global_batch_size=None,
     ):
         # Set the gradient accumulation steps if global_batch_size is provided
@@ -146,6 +149,7 @@ class TrainRunner:
             args=training_args,
             train_dataset=train_dataset,
             data_collator=data_collator,
+            optimizers=optimizers,
             compute_dtype=compute_dtype,
         )
 
@@ -186,9 +190,10 @@ class CriticTrainRunner(TrainRunner):
         model: GR00T_N1_5,
         training_args: TrainingArguments,
         train_dataset: LeRobotSingleDataset | LeRobotMixtureDataset,
+        optimizers: tuple[torch.optim.Optimizer, torch.optim.Optimizer] = None,
         resume_from_checkpoint: bool = False,
     ):
-        super().__init__(model, training_args, train_dataset, resume_from_checkpoint)
+        super().__init__(model, training_args, train_dataset, optimizers, resume_from_checkpoint)
 
 
     def create_trainer(
@@ -198,6 +203,7 @@ class CriticTrainRunner(TrainRunner):
         train_dataset,
         data_collator,
         compute_dtype,
+        optimizers=None,
         global_batch_size=None,
     ):
         # Set the gradient accumulation steps if global_batch_size is provided
@@ -216,6 +222,7 @@ class CriticTrainRunner(TrainRunner):
             args=training_args,
             train_dataset=train_dataset,
             data_collator=data_collator,
+            optimizers=optimizers,
             compute_dtype=compute_dtype,
         )
 
@@ -252,9 +259,10 @@ class RLTrainRunner(TrainRunner):
         model: GR00T_N1_5,
         training_args: TrainingArguments,
         train_dataset: LeRobotSingleDataset | LeRobotMixtureDataset,
+        optimizers: tuple[torch.optim.Optimizer, torch.optim.Optimizer] = None,
         resume_from_checkpoint: bool = False,
     ):
-        super().__init__(model, training_args, train_dataset, resume_from_checkpoint)
+        super().__init__(model, training_args, train_dataset, optimizers, resume_from_checkpoint)
 
 
     def create_trainer(
@@ -264,6 +272,7 @@ class RLTrainRunner(TrainRunner):
         train_dataset,
         data_collator,
         compute_dtype,
+        optimizers=None,
         global_batch_size=None,
     ):
         # Set the gradient accumulation steps if global_batch_size is provided
@@ -277,12 +286,13 @@ class RLTrainRunner(TrainRunner):
             )
 
         # Create the trainer
-        trainer = DualBrainRLTrainer(
+        trainer = DualBrainFQLTrainer(
             model=model,
             args=training_args,
             train_dataset=train_dataset,
             data_collator=data_collator,
             compute_dtype=compute_dtype,
+            optimizers=optimizers,
         )
 
         # Add checkpoint format callback to ensure experiment_cfg is copied to each checkpoint

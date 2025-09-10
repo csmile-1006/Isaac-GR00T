@@ -17,18 +17,20 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import List, Literal
 
 import torch
 import tyro
 from transformers import TrainingArguments
+from torch.optim.lr_scheduler import LambdaLR
 
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.experiment.runner import RLTrainRunner
-from gr00t.model.gr00t_n1_rl import GR00T_N1_5_RL
+from gr00t.model.gr00t_n1_fql import GR00T_N1_5_FQL
 from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.peft import get_lora_model
 
@@ -76,6 +78,9 @@ class ArgsConfig:
     tune_diffusion_model: bool = True
     """Whether to fine-tune the diffusion model."""
 
+    tune_critic: bool = True
+    """Whether to fine-tune the critic."""
+
     resume: bool = False
     """Whether to resume from a checkpoint."""
 
@@ -121,6 +126,10 @@ class ArgsConfig:
     # Mixture dataset parameters
     balance_trajectory_weights: bool = True
     """Used in LeRobotMixtureDataset. If True, sample trajectories within a dataset weighted by their length; otherwise, equal weighting."""
+
+    # Logging parameters
+    run_name: str = "default"
+    """Run name for logging."""
 
 
 #####################################################################################
@@ -181,12 +190,13 @@ def main(config: ArgsConfig):
         print(f"Loaded {len(single_datasets)} datasets, with {config.dataset_path} ")
 
     # ------------ step 2: load model ------------
-    model = GR00T_N1_5_RL.from_pretrained(
+    model = GR00T_N1_5_FQL.from_pretrained(
         pretrained_model_name_or_path=config.base_model_path,
         tune_llm=config.tune_llm,  # backbone's LLM
         tune_visual=config.tune_visual,  # backbone's vision tower
         tune_projector=config.tune_projector,  # action head's projector
         tune_diffusion_model=config.tune_diffusion_model,  # action head's DiT
+        tune_critic=config.tune_critic,  # action head's critic
         from_gr00t_n1_5=True,
     )
 
@@ -203,10 +213,11 @@ def main(config: ArgsConfig):
             action_head_only=not config.lora_full_model,
         )
 
+    run_name = f"{config.run_name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     # 2.1 modify training args
     training_args = TrainingArguments(
         output_dir=config.output_dir,
-        run_name=None,
+        run_name=run_name,
         remove_unused_columns=False,
         deepspeed="",
         gradient_checkpointing=False,
@@ -221,10 +232,10 @@ def main(config: ArgsConfig):
         adam_beta1=0.95,
         adam_beta2=0.999,
         adam_epsilon=1e-8,
-        learning_rate=config.learning_rate,
-        weight_decay=config.weight_decay,
-        warmup_ratio=config.warmup_ratio,
-        lr_scheduler_type="cosine",
+        # learning_rate=config.learning_rate,
+        # weight_decay=config.weight_decay,
+        # warmup_ratio=config.warmup_ratio,
+        # lr_scheduler_type="cosine",
         logging_steps=10.0,
         num_train_epochs=300,
         max_steps=config.max_steps,
@@ -232,12 +243,61 @@ def main(config: ArgsConfig):
         save_steps=config.save_steps,
         # evaluation_strategy="no",
         save_total_limit=8,
-        report_to=config.report_to,
+        report_to="wandb",
         seed=42,
         do_eval=False,
         ddp_find_unused_parameters=False,
         ddp_bucket_cap_mb=100,
         torch_compile_mode=None,
+    )
+
+    param_groups = model.action_head.get_parameter_groups_for_separate_optimizers()
+    param_groups = [
+        {
+            "params": param_groups["flow_matching"],
+            "lr": config.learning_rate,
+            "weight_decay": config.weight_decay,
+            "adam_beta1": 0.95,
+            "adam_beta2": 0.999,
+            "adam_epsilon": 1e-8,
+        },
+        {
+            "params": param_groups["actor"],
+            "lr": config.learning_rate,
+            "weight_decay": config.weight_decay,
+            "adam_beta1": 0.95,
+            "adam_beta2": 0.999,
+            "adam_epsilon": 1e-8,
+        },
+        {
+            "params": param_groups["critic"],
+            "lr": 3e-4,
+            "weight_decay": 1e-5,
+            "adam_beta1": 0.95,
+            "adam_beta2": 0.999,
+            "adam_epsilon": 1e-8,
+        },
+    ]
+
+    optimizer = torch.optim.AdamW(param_groups)
+
+    # 1) 코사인 decay + warmup
+    def cosine_warmup_lambda(current_step: int):
+        warmup_steps = int(config.warmup_ratio * config.max_steps)
+        total_steps = config.max_steps
+        if current_step < warmup_steps:
+            return float(current_step) / float(max(1, warmup_steps))
+        progress = (current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+        return 0.5 * (1.0 + torch.cos(torch.pi * progress))
+
+    # 2) constant lr
+    def constant_lambda(current_step: int):
+        return 1.0
+
+    # 그룹별 스케줄러 결합
+    scheduler = LambdaLR(
+        optimizer,
+        lr_lambda=[cosine_warmup_lambda, cosine_warmup_lambda, constant_lambda],  # param_groups 순서와 매칭
     )
 
     # 2.2 run experiment
@@ -246,6 +306,7 @@ def main(config: ArgsConfig):
         model=model,
         training_args=training_args,
         resume_from_checkpoint=config.resume,
+        optimizers=(optimizer, scheduler),
     )
 
     # 2.3 run experiment
@@ -267,11 +328,13 @@ if __name__ == "__main__":
     available_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
 
     # Validate GPU configuration
-    assert (
-        config.num_gpus <= available_gpus
-    ), f"Number of GPUs requested ({config.num_gpus}) is greater than the available GPUs ({available_gpus})"
+    assert config.num_gpus <= available_gpus, (
+        f"Number of GPUs requested ({config.num_gpus}) is greater than the available GPUs ({available_gpus})"
+    )
     assert config.num_gpus > 0, "Number of GPUs must be greater than 0"
     print(f"Using {config.num_gpus} GPUs")
+
+    os.environ["WANDB_PROJECT"] = "gr00t-fql-finetune"
 
     if config.num_gpus == 1:
         # Single GPU mode - set CUDA_VISIBLE_DEVICES=0
@@ -285,8 +348,8 @@ if __name__ == "__main__":
             # Multi-GPU mode - use torchrun
             script_path = Path(__file__).absolute()
             # Remove any existing CUDA_VISIBLE_DEVICES from environment
-            if "CUDA_VISIBLE_DEVICES" in os.environ:
-                del os.environ["CUDA_VISIBLE_DEVICES"]
+            # if "CUDA_VISIBLE_DEVICES" in os.environ:
+            #     del os.environ["CUDA_VISIBLE_DEVICES"]
 
             # Use subprocess.run instead of os.system
             cmd = [

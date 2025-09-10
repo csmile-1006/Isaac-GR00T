@@ -55,11 +55,11 @@ def build_eagle_processor(eagle_path: str) -> ProcessorMixin:
 def collate(features: List[dict], eagle_processor) -> dict:
     batch = {}
     keys = features[0].keys()
-
     for key in keys:
         values = [elem[key] for elem in features]
 
         if key in ("eagle_content", "next_eagle_content"):
+            prefix = "eagle_" if key == "eagle_content" else "next_eagle_"
             text_list = []
             image_inputs = []
             for v in values:
@@ -71,7 +71,7 @@ def collate(features: List[dict], eagle_processor) -> dict:
                 text=text_list, images=image_inputs, return_tensors="pt", padding=True
             )
             for k, v in eagle_inputs.items():
-                k = "eagle_" + k
+                k = prefix + k
                 batch[k] = v
         elif key in ("pixel_values", "image_grid_thw", "attention_mask", "input_ids"):
             # Concat in existing batch dimension.
@@ -463,10 +463,10 @@ class GR00TRLTransform(GR00TTransform):
         vlm_outputs = self._apply_vlm_processing(batch_data, key="images")
 
         # # 2) Prepare next video and language with vlm processing.
-        # next_images = self._prepare_video(data, key="next_video")
-        # next_images = next_images.astype(np.uint8)
-        # next_batch_data = {"next_images": next_images, "language": language}
-        # next_vlm_outputs = self._apply_vlm_processing(next_batch_data, key="next_images")
+        next_images = self._prepare_video(data, key="next_video")
+        next_images = next_images.astype(np.uint8)
+        next_batch_data = {"next_images": next_images, "language": language}
+        next_vlm_outputs = self._apply_vlm_processing(next_batch_data, key="next_images")
 
         # 3) Prepare state
         state, state_mask, _ = self._prepare_state(data, key="state")
@@ -491,9 +491,9 @@ class GR00TRLTransform(GR00TTransform):
             assert k not in transformed_data, f"Key {k} already exists in transformed_data."
             transformed_data[k] = v
 
-        # for k, v in next_vlm_outputs.items():
-        #     assert k not in transformed_data, f"Key {k} already exists in transformed_data."
-        #     transformed_data[k] = v
+        for k, v in next_vlm_outputs.items():
+            assert k not in transformed_data, f"Key {k} already exists in transformed_data."
+            transformed_data[k] = v
 
         transformed_data["embodiment_id"] = self.get_embodiment_tag()
 

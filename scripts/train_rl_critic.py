@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import List, Literal
 
@@ -122,6 +123,10 @@ class ArgsConfig:
     balance_trajectory_weights: bool = True
     """Used in LeRobotMixtureDataset. If True, sample trajectories within a dataset weighted by their length; otherwise, equal weighting."""
 
+    # run name
+    run_name: str = "fql_critic"
+    """Run name for logging."""
+
 
 #####################################################################################
 # main training function
@@ -202,10 +207,12 @@ def main(config: ArgsConfig):
             action_head_only=not config.lora_full_model,
         )
 
+    run_name = f"{config.run_name}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
+
     # 2.1 modify training args
     training_args = TrainingArguments(
         output_dir=config.output_dir,
-        run_name=None,
+        run_name=run_name,
         remove_unused_columns=False,
         deepspeed="",
         gradient_checkpointing=False,

@@ -189,10 +189,10 @@ class LeRobotRLModalityMetadata(LeRobotModalityMetadata):
         description="The metadata for the next state modality. The keys are the new names of each next state modality.",
     )
 
-    # next_video: dict[str, LeRobotModalityField] = Field(
-    #     ...,
-    #     description="The metadata for the next video modality. The keys are the new names of each next video modality.",
-    # )
+    next_video: dict[str, LeRobotModalityField] = Field(
+        ...,
+        description="The metadata for the next video modality. The keys are the new names of each next video modality.",
+    )
 
     def get_key_meta(self, key: str) -> LeRobotModalityField:
         """Get the metadata for a key in the LeRobot modality metadata.
@@ -236,12 +236,12 @@ class LeRobotRLModalityMetadata(LeRobotModalityMetadata):
                     f"Key: {key}, video key {subkey} not found in metadata, available video keys: {self.video.keys()}"
                 )
             return self.video[subkey]
-        # elif modality == "next_video":
-        #     if subkey not in self.next_video:
-        #         raise ValueError(
-        #             f"Key: {key}, next video key {subkey} not found in metadata, available next video keys: {self.next_video.keys()}"
-        #         )
-        #     return self.next_video[subkey]
+        elif modality == "next_video":
+            if subkey not in self.next_video:
+                raise ValueError(
+                    f"Key: {key}, next video key {subkey} not found in metadata, available next video keys: {self.next_video.keys()}"
+                )
+            return self.next_video[subkey]
         elif modality == "annotation":
             assert self.annotation is not None, "Trying to get annotation metadata for a dataset with no annotations"
             if subkey not in self.annotation:
@@ -337,7 +337,7 @@ class RLDatasetModalities(BaseModel):
     video: dict[str, VideoMetadata] = Field(..., description="Metadata of the video")
     state: dict[str, StateActionMetadata] = Field(..., description="Metadata of the state")
     next_state: dict[str, StateActionMetadata] = Field(..., description="Metadata of the next state")
-    # next_video: dict[str, VideoMetadata] = Field(..., description="Metadata of the next video")
+    next_video: dict[str, VideoMetadata] = Field(..., description="Metadata of the next video")
     action: dict[str, StateActionMetadata] = Field(..., description="Metadata of the action")
     reward: RewardMetadata = Field(..., description="Metadata of the reward")
     done: DoneMetadata = Field(..., description="Metadata of the done")
