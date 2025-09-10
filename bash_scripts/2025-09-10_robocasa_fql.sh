@@ -13,7 +13,7 @@ python scripts/gr00t_fql_finetune.py \
     --dataset-path ${BASE_PATH}/data/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/ ${BASE_PATH}/gr00tn15_robocasa/rl_rollouts/${TASK_NAME}_num${NUM_ROLLOUTS}/lerobot \
     --base-model-path ${CKPT_PATH} \
     --num-gpus ${NUM_GPUS} \
-    --output-dir ~/ckpts/FQL/${TASK_NAME}_num${NUM_DEMOS}_num${NUM_ROLLOUTS}_bs${($BATCH_SIZE * $NUM_GPUS)}_step${STEPS}/ \
+    --output-dir ~/ckpts/FQL/${TASK_NAME}_num${NUM_DEMOS}_num${NUM_ROLLOUTS}_bs${(${BATCH_SIZE} * ${NUM_GPUS})}_step${STEPS}/ \
     --max-steps ${STEPS} \
     --data-config single_panda_gripper_rl_as1 \
     --batch-size 32 \
