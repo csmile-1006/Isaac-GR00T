@@ -29,6 +29,26 @@ from gr00t.model.action_head.flow_matching_action_head import (
 from gr00t.model.action_head.cross_attention_dit import SelfAttentionTransformer
 
 
+class MLP(torch.nn.Module):
+    def __init__(self, input_dim: int, hidden_dims: list[int], output_dim: int, layer_norm: bool = True):
+        super().__init__()
+        self.input_dim = input_dim
+        self.hidden_dims = hidden_dims
+        self.output_dim = output_dim
+        layers = []
+        for hidden_dim in hidden_dims:
+            layers.append(nn.Linear(input_dim, hidden_dim))
+            if layer_norm:
+                layers.append(nn.LayerNorm(hidden_dim))
+            layers.append(nn.GELU())
+            input_dim = hidden_dim
+        layers.append(nn.Linear(input_dim, output_dim))
+        self.mlp = nn.Sequential(*layers)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.mlp(x)
+
+
 class BroNet(torch.nn.Module):
     def __init__(
         self, input_dim: int, hidden_size: int, depth: int, add_final_layer: bool = False, output_dim: int = 1
@@ -88,26 +108,24 @@ class ResidualBlock(torch.nn.Module):
 
 
 class DoubleCritic(nn.Module):
-    def __init__(self, input_dim: int, hidden_size: int, depth: int, add_final_layer: bool = True, output_dim: int = 1):
+    def __init__(self, input_dim: int, hidden_dims: list[int], add_final_layer: bool = True, output_dim: int = 1):
         super().__init__()
-        self.Q1 = BroNet(
+        self.Q1 = MLP(
             input_dim=input_dim,
-            hidden_size=hidden_size,
-            depth=depth,
-            add_final_layer=add_final_layer,
+            hidden_dims=hidden_dims,
             output_dim=output_dim,
         )
-        self.Q2 = BroNet(
+        self.Q2 = MLP(
             input_dim=input_dim,
-            hidden_size=hidden_size,
-            depth=depth,
-            add_final_layer=add_final_layer,
+            hidden_dims=hidden_dims,
             output_dim=output_dim,
         )
 
-    def forward(self, states, actions):
+    def forward(self, vl_embed_features, states, actions):
         B = states.shape[0]
-        state_action = torch.cat([states.reshape(B, -1), actions.reshape(B, -1)], axis=1)
+        state_action = torch.cat(
+            [vl_embed_features.reshape(B, -1), states.reshape(B, -1), actions.reshape(B, -1)], axis=1
+        )
         q1 = self.Q1(state_action)
         q2 = self.Q2(state_action)
 
@@ -125,9 +143,9 @@ class Value(nn.Module):
             output_dim=output_dim,
         )
 
-    def forward(self, states):
+    def forward(self, vl_embed_features, states):
         B = states.shape[0]
-        v = self.value(states.reshape(B, -1))
+        v = self.value(torch.cat([vl_embed_features.reshape(B, -1), states.reshape(B, -1)], axis=1))
         return v
 
 
@@ -162,8 +180,10 @@ class MultiEmbodimentActionCriticEncoder(nn.Module):
 @dataclass
 class CriticConfig(PretrainedConfig):
     input_embedding_dim: int = field(default=1536, metadata={"help": "Input embedding dimension."})
-    # backbone_embedding_dim: int = field(default=1536, metadata={"help": "Backbone embedding dimension."})
+    backbone_embedding_dim: int = field(default=1536, metadata={"help": "Backbone embedding dimension."})
     hidden_size: int = field(default=1024, metadata={"help": "Hidden dimension."})
+    critic_hidden_size: int = field(default=512, metadata={"help": "Hidden dimension."})
+    value_hidden_size: int = field(default=256, metadata={"help": "Hidden dimension."})
     depth: int = field(default=2, metadata={"help": "Depth of the network."})
     add_final_layer: bool = field(default=True, metadata={"help": "Whether to add a final layer."})
     output_dim: int = field(default=1, metadata={"help": "Output dimension."})
@@ -181,9 +201,9 @@ class CriticConfig(PretrainedConfig):
     alpha: float = field(default=10.0, metadata={"help": "Alpha for actor loss."})
     tau: float = field(default=0.005, metadata={"help": "Tau for target critic update."})
 
-    # # VLLN parameters
-    # use_vlln: bool = field(default=True, metadata={"help": "Whether to use VLLN."})
-    # vl_self_attention_cfg: dict = field(default=None, metadata={"help": "VLLN self attention configuration."})
+    # VLLN parameters
+    use_vlln: bool = field(default=True, metadata={"help": "Whether to use VLLN."})
+    vl_self_attention_cfg: dict = field(default=None, metadata={"help": "VLLN self attention configuration."})
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -201,10 +221,17 @@ class Critic(nn.Module):
     ):
         super().__init__()
         self.hidden_size = config.hidden_size
+        self.critic_hidden_size = config.critic_hidden_size
+        self.value_hidden_size = config.value_hidden_size
         self.input_embedding_dim = config.input_embedding_dim
 
         self.action_dim = config.action_dim
         self.action_horizon = config.action_horizon
+
+        self.vlln = nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
+        self.vl_self_attention = (
+            SelfAttentionTransformer(**config.vl_self_attention_cfg) if config.use_vlln else nn.Identity()
+        )
 
         self.state_encoder = CategorySpecificMLP(
             num_categories=config.max_num_embodiments,
@@ -217,29 +244,23 @@ class Critic(nn.Module):
             hidden_size=self.input_embedding_dim,
             num_embodiments=config.max_num_embodiments,
         )
-
-        self.vlln = (
-            nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
-        )
-        self.vl_self_attention = (
-            SelfAttentionTransformer(**config.vl_self_attention_cfg)
-            if config.use_vlln
-            else nn.Identity()
+        self.backbone_encoder = nn.Sequential(
+            nn.Linear(config.backbone_embedding_dim, self.hidden_size),
+            nn.ReLU(),
+            nn.Linear(config.hidden_size, self.input_embedding_dim),
         )
 
         self.value = Value(
-            input_dim=self.input_embedding_dim,
-            hidden_size=config.hidden_size,
+            input_dim=self.input_embedding_dim * 2,
+            hidden_size=config.value_hidden_size,
             depth=config.depth,
             add_final_layer=config.add_final_layer,
             output_dim=config.output_dim,
         )
 
         self.critic = DoubleCritic(
-            input_dim=self.input_embedding_dim * (config.action_horizon + 1),
-            hidden_size=config.hidden_size,
-            depth=config.depth,
-            add_final_layer=config.add_final_layer,
+            input_dim=self.input_embedding_dim * (config.action_horizon + 2),
+            hidden_dims=[config.critic_hidden_size, config.critic_hidden_size, config.critic_hidden_size, config.critic_hidden_size],
             output_dim=config.output_dim,
         )
 
@@ -254,20 +275,19 @@ class Critic(nn.Module):
         weight = torch.where(adv >= 0, expectile, (1 - expectile))
         return torch.mean(weight * (diff**2))
 
-    def set_trainable_parameters(self, tune_projector: bool):
+    def set_trainable_parameters(self, tune_projector: bool, tune_vlln: bool):
         self.tune_projector = tune_projector
+        self.tune_vlln = tune_vlln
         for p in self.parameters():
             p.requires_grad = True
         if not tune_projector:
             self.state_encoder.requires_grad_(False)
+            self.critic_action_encoder.requires_grad_(False)
+        if not tune_vlln:
+            self.vlln.requires_grad_(False)
+            self.vl_self_attention.requires_grad_(False)
         print(f"Tune action head projector: {self.tune_projector}")
-        # Check if any parameters are still trainable. If not, print a warning.
-        if not self.tune_projector:
-            for name, p in self.named_parameters():
-                if p.requires_grad:
-                    print(f"Action head trainable parameter: {name}")
-        if not any(p.requires_grad for p in self.parameters()):
-            print("Warning: No action head trainable parameters found.")
+        print(f"Tune action head vlln: {self.tune_vlln}")
 
     def set_frozen_modules_to_eval_mode(self):
         """
@@ -278,6 +298,9 @@ class Critic(nn.Module):
         if self.training:
             if not self.tune_projector:
                 self.state_encoder.eval()
+            if not self.tune_vlln:
+                self.vlln.eval()
+                self.vl_self_attention.eval()
 
     def prepare_input(self, batch: dict) -> BatchFeature:
         return BatchFeature(data=batch)
@@ -295,8 +318,8 @@ class Critic(nn.Module):
 
         backbone_output = self.process_backbone_output(backbone_output)
         vl_embeds = backbone_output.backbone_features
-        print(f"vl_embeds.shape: {vl_embeds.shape}")
-        raise ValueError("Stop here")
+        vl_embeds_mean = vl_embeds.mean(dim=1)
+        vl_embed_features = self.backbone_encoder(vl_embeds_mean)
 
         # Get vision and language embeddings.
         embodiment_id = action_input.embodiment_id
@@ -307,7 +330,7 @@ class Critic(nn.Module):
 
         # Critic loss 1) value loss
         with torch.no_grad():
-            q1, q2 = self.target_critic(state_features, action_critic_features)
+            q1, q2 = self.target_critic(vl_embed_features, state_features, action_critic_features)
             if self.config.q_agg == "min":
                 q = torch.minimum(q1, q2)
             elif self.config.q_agg == "mean":
@@ -315,20 +338,20 @@ class Critic(nn.Module):
             else:
                 assert False, f"Invalid q_agg: {self.config.q_agg}"
 
-        v = self.value(state_features)
+        v = self.value(vl_embed_features, state_features)
         value_loss = self.expectile_loss(q - v, q - v, self.config.expectile)
 
         # Critic loss 2) critic loss
         next_state_features = self.state_encoder(action_input.next_state, embodiment_id)
         with torch.no_grad():
-            next_v = self.value(next_state_features)
+            next_v = self.value(vl_embed_features, next_state_features)
             q = (
                 action_input.reward
                 + (self.config.discount ** (self.config.nstep * self.config.action_horizon))
                 * action_input.done
                 * next_v
             )
-        q1, q2 = self.critic(state_features, action_critic_features)
+        q1, q2 = self.critic(vl_embed_features, state_features, action_critic_features)
         critic_loss = ((q - q1) ** 2 + (q - q2) ** 2).mean()
 
         total_loss = critic_loss + value_loss

@@ -73,6 +73,9 @@ class ArgsConfig:
     tune_projector: bool = True
     """Whether to fine-tune the projector."""
 
+    tune_vlln: bool = False
+    """Whether to fine-tune the VLLN."""
+
     resume: bool = False
     """Whether to resume from a checkpoint."""
 

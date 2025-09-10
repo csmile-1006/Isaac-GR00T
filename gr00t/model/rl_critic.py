@@ -137,7 +137,6 @@ class RL_Critic(PreTrainedModel):
     ) -> BatchFeature:
         backbone_inputs, critic_inputs = self.prepare_input(inputs)
         backbone_outputs = self.backbone(backbone_inputs)
-        critic_inputs = self.prepare_input(inputs)
         critic_outputs = self.critic(backbone_outputs, critic_inputs)
         self.validate_data(critic_outputs, is_training=True)
         return critic_outputs
@@ -164,6 +163,7 @@ class RL_Critic(PreTrainedModel):
         tune_visual = kwargs.pop("tune_visual", False)
         tune_llm = kwargs.pop("tune_llm", False)
         tune_projector = kwargs.pop("tune_projector", True)
+        tune_vlln = kwargs.pop("tune_vlln", False)
 
         print(f"Loading pretrained dual brain from {pretrained_model_name_or_path}")
         print(f"Tune action head projector: {tune_projector}")
@@ -199,7 +199,7 @@ class RL_Critic(PreTrainedModel):
 
             critic_cfg = CriticConfig(
                 input_embedding_dim=pretrained_gr00t_n1_5_cfg.action_head_cfg["input_embedding_dim"],
-                # backbone_embedding_dim=pretrained_gr00t_n1_5_cfg.action_head_cfg["backbone_embedding_dim"],
+                backbone_embedding_dim=pretrained_gr00t_n1_5_cfg.action_head_cfg["backbone_embedding_dim"],
                 hidden_size=pretrained_gr00t_n1_5_cfg.action_head_cfg["hidden_size"],
                 depth=3,
                 add_final_layer=True,
@@ -207,8 +207,8 @@ class RL_Critic(PreTrainedModel):
                 action_dim=pretrained_gr00t_n1_5_cfg.action_dim,
                 action_horizon=pretrained_gr00t_n1_5_cfg.action_horizon,
                 max_state_dim=pretrained_gr00t_n1_5_cfg.action_head_cfg["max_state_dim"],
-                # use_vlln=pretrained_gr00t_n1_5_cfg.action_head_cfg["use_vlln"],
-                # vl_self_attention_cfg=pretrained_gr00t_n1_5_cfg.action_head_cfg["vl_self_attention_cfg"],
+                use_vlln=pretrained_gr00t_n1_5_cfg.action_head_cfg["use_vlln"],
+                vl_self_attention_cfg=pretrained_gr00t_n1_5_cfg.action_head_cfg["vl_self_attention_cfg"],
             )
 
             new_cfg.critic_cfg = critic_cfg.to_dict()
@@ -231,7 +231,7 @@ class RL_Critic(PreTrainedModel):
 
             # Set trainable parameters according to flags
             pretrained_model.backbone.set_trainable_parameters(tune_visual=tune_visual, tune_llm=tune_llm)
-            pretrained_model.critic.set_trainable_parameters(tune_projector=tune_projector)
+            pretrained_model.critic.set_trainable_parameters(tune_projector=tune_projector, tune_vlln=tune_vlln)
 
             del pretrained_gr00t_n1_5
             return pretrained_model
