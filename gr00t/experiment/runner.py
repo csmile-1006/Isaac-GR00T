@@ -37,7 +37,7 @@ class TrainRunner:
         model: GR00T_N1_5,
         training_args: TrainingArguments,
         train_dataset: LeRobotSingleDataset | LeRobotMixtureDataset,
-        optimizers: tuple[torch.optim.Optimizer, torch.optim.Optimizer] = None,
+        optimizers: tuple[torch.optim.Optimizer, torch.optim.Optimizer] = (None, None),
         resume_from_checkpoint: bool = False,
     ):
         self.training_args = training_args
@@ -130,7 +130,7 @@ class TrainRunner:
         train_dataset,
         data_collator,
         compute_dtype,
-        optimizers=None,
+        optimizers=(None, None),
         global_batch_size=None,
     ):
         # Set the gradient accumulation steps if global_batch_size is provided
@@ -203,7 +203,7 @@ class CriticTrainRunner(TrainRunner):
         train_dataset,
         data_collator,
         compute_dtype,
-        optimizers=None,
+        optimizers=(None, None),
         global_batch_size=None,
     ):
         # Set the gradient accumulation steps if global_batch_size is provided
@@ -272,7 +272,7 @@ class RLTrainRunner(TrainRunner):
         train_dataset,
         data_collator,
         compute_dtype,
-        optimizers=None,
+        optimizers=(None, None),
         global_batch_size=None,
     ):
         # Set the gradient accumulation steps if global_batch_size is provided
