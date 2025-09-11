@@ -513,7 +513,7 @@ class FQLActionHead(nn.Module):
         vl_embed_features = self.backbone_encoder(vl_embeds_mean)
         timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
         actor_action_critic_features = self.critic_action_encoder(
-            onestep_actions[:, -self.critic_action_horizon :], timestep_tensor, embodiment_id
+            onestep_actions[:, :self.critic_action_horizon], timestep_tensor, embodiment_id
         )
         q1, q2 = self.critic(vl_embed_features, state_features, actor_action_critic_features)
         q = (q1 + q2) / 2
@@ -584,7 +584,7 @@ class FQLActionHead(nn.Module):
             state_features = self.state_encoder(action_input.state, embodiment_id)
         timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
         action_critic_features = self.critic_action_encoder(
-            action_input.action[:, -self.critic_action_horizon :], timestep_tensor, embodiment_id
+            action_input.action[:, :self.critic_action_horizon], timestep_tensor, embodiment_id
         )
         vl_embeds_mean = vl_embeds.mean(dim=1)
         vl_embed_features = self.backbone_encoder(vl_embeds_mean)
@@ -605,7 +605,7 @@ class FQLActionHead(nn.Module):
             next_vl_embeds_mean = next_vl_embeds.mean(dim=1)
             next_vl_embed_features = self.backbone_encoder(next_vl_embeds_mean)
             next_action_critic_features = self.critic_action_encoder(
-                next_pred_actions[:, -self.critic_action_horizon :], timestep_tensor, embodiment_id
+                next_pred_actions[:, :self.critic_action_horizon], timestep_tensor, embodiment_id
             )
             next_q1, next_q2 = self.target_critic(
                 next_vl_embed_features, next_state_features, next_action_critic_features
@@ -714,7 +714,7 @@ class FQLActionHead(nn.Module):
         )
         pred = self.action_decoder(model_output, embodiment_id)
 
-        pred_velocity = pred[:, -self.critic_action_horizon :]
+        pred_velocity = pred[:, :self.critic_action_horizon]
 
         actions = actions + pred_velocity
         return BatchFeature(data={"action_pred": actions})
