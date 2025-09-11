@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import argparse
+import csv
 import datetime
 import json
 import os
@@ -255,10 +256,16 @@ if __name__ == "__main__":
         help="Number of episodes to run",
     )
     parser.add_argument(
-        "--video_path",
+        "--output_path",
         type=str,
         default=None,
-        help="Path to save the video",
+        help="Path to save the output",
+    )
+    parser.add_argument(
+        "--save_video",
+        default=False,
+        action="store_true",
+        help="Whether to save the video",
     )
 
     # Robocasa env parameters
@@ -418,7 +425,7 @@ if __name__ == "__main__":
         collect_data=args.collect_data,
         collect_directory=Path(args.data_collection_path) if args.collect_data else None,
         # video configs
-        video_path=args.video_path,
+        video_path=None if not args.save_video else Path(args.output_path) / "videos",
         # multi-step configs
         action_horizon=args.action_horizon,
         video_delta_indices=np.array([0]),
@@ -447,14 +454,6 @@ if __name__ == "__main__":
     completed_episodes = 0
     current_successes = [False] * args.n_envs
     episode_successes = []
-    # Initial environment reset
-    obs, _ = env.reset()
-    pbar = tqdm(
-        total=args.num_episodes,
-        desc=f"Evaluating {args.num_episodes} episodes",
-        leave=False,
-    )
-
     noise_levels = {
         "action.end_effector_position": 0.05,
         "action.end_effector_rotation": 0.3,
@@ -470,6 +469,14 @@ if __name__ == "__main__":
                 noise = np.clip(noise, -args.noise_smoothing, args.noise_smoothing)
         return actions
 
+    # Initial environment reset
+    obs, _ = env.reset()
+    pbar = tqdm(
+        total=args.num_episodes,
+        desc=f"Evaluating {args.num_episodes} episodes",
+        leave=False,
+    )
+
     # Main simulation loop
     while completed_episodes < args.num_episodes:
         # Process observations and get actions from the server
@@ -481,7 +488,7 @@ if __name__ == "__main__":
         for env_idx in range(args.n_envs):
             current_successes[env_idx] |= bool(env_infos["success"][env_idx][0])
             current_rewards[env_idx] += rewards[env_idx]
-            current_lengths[env_idx] += 1
+            current_lengths[env_idx] += args.action_horizon
             # If episode ended, store results
             if terminations[env_idx] or truncations[env_idx]:
                 episode_lengths.append(current_lengths[env_idx])
@@ -502,6 +509,21 @@ if __name__ == "__main__":
     assert len(episode_successes) >= args.num_episodes, (
         f"Expected at least {args.num_episodes} episodes, got {len(episode_successes)}"
     )
+
+    csv_path = Path(args.output_path if args.output_path else "./") / "eval.csv"
+    with open(csv_path, mode="w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["episode", "success", "length"])
+        for i, (succ, length) in enumerate(zip(episode_successes, episode_lengths)):
+            writer.writerow([i, int(succ), length])
+    print(f"Saved evaluation results to {csv_path}")
+
+    # Also write success rate to a separate file
+    success_rate = np.mean(episode_successes)
+    success_path = Path(args.output_path if args.output_path else "./") / "success.txt"
+    with open(success_path, "w") as f:
+        f.write(f"Success Rate: {success_rate:.4f}\n")
+    print(f"Saved success rate to {success_path}")
 
     if args.collect_data:
         print("Change collected data to hdf5 format")

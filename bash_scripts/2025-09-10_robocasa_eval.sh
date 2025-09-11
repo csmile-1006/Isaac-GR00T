@@ -10,11 +10,10 @@
 
 TASK_NAME=$1
 ACTION_HORIZON=16
-CKPT_NAME=$2
-CKPT_STEP=$3
-NUM_ENVS=$4
-NUM_ROLLOUTS=$5
-SERVER=${6:-"alin_slurm"}
+CKPT_PATH=$2
+NUM_ENVS=$3
+NUM_ROLLOUTS=$4
+SERVER=${5:-"alin_slurm"}
 
 if [ "$SERVER" == "rlwrld" ]; then
     ROOT_PATH=/virtual_lab/sjw_alinlab/changyeon/
@@ -25,11 +24,11 @@ fi
 source ${ROOT_PATH}/miniconda3/bin/activate gr00t
 cd ${ROOT_PATH}/workspace/Isaac-GR00T
 
-MUJOCO_GL=egl
-BASE_PATH=${ROOT_PATH}/gr00tn15_robocasa/rollouts/
-CKPT_PATH=${ROOT_PATH}/ckpts/${CKPT_NAME}/checkpoint-${CKPT_STEP}
-
-python scripts/eval_policy_robocasa.py \
+CKPT_FOLDER=$(basename "$(dirname "${CKPT_PATH}")")
+OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/${TASK_NAME}/${CKPT_FOLDER}_eval_n${NUM_ROLLOUTS}
+script="
+    MUJOCO_GL=egl \
+    python scripts/eval_policy_robocasa.py \
     --host localhost \
     --port 5555 \
     --data_config single_panda_gripper \
@@ -39,4 +38,9 @@ python scripts/eval_policy_robocasa.py \
     --env_name ${TASK_NAME} \
     --num_episodes ${NUM_ROLLOUTS} \
     --noise 0.0 \
-    --n_envs ${NUM_ENVS}
+    --n_envs ${NUM_ENVS} \
+    --output_path ${OUTPUT_PATH} \
+    --save_video
+"
+echo $script
+eval $script

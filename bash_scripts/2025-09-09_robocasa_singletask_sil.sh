@@ -11,19 +11,26 @@
 TASK_NAME=$1
 NUM_DEMOS=$2
 STEPS=$3
+NUM_GPUS=${4:-2}
+BATCH_SIZE=${5:-16}
+TOTAL_BATCH_SIZE=$((NUM_GPUS * BATCH_SIZE))
 
-BASE_PATH=/home/changyeon/
+BASE_PATH=/home/changyeon
 CKPT_PATH=${BASE_PATH}/ckpts/gr00tn15_rbcs_bs32_60k
 source ${BASE_PATH}/miniconda3/bin/activate gr00t
 cd ${BASE_PATH}/workspace/Isaac-GR00T
 
-python scripts/gr00t_finetune.py \
+SCRIPT="
+    python scripts/gr00t_finetune.py \
     --base_model_path ${CKPT_PATH} \
     --dataset-path "${BASE_PATH}/data/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/" \
                    "${BASE_PATH}/gr00tn15_robocasa/rollout_demos/${TASK_NAME}_num${NUM_DEMOS}/lerobot/" \
     --num-gpus 2 \
-    --output-dir "${BASE_PATH}/ckpts/SIL/step${STEPS}_${TASK_NAME}_num${NUM_DEMOS}" \
+    --output-dir "${BASE_PATH}/ckpts/${TASK_NAME}/SIL_bs${TOTAL_BATCH_SIZE}_step${STEPS}_demo${NUM_DEMOS}" \
     --max-steps "${STEPS}" \
     --data-config single_panda_gripper \
-    --batch-size 16 \
+    --batch-size ${BATCH_SIZE} \
     --save-steps 5000
+"
+echo $SCRIPT
+eval $SCRIPT

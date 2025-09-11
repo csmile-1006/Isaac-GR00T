@@ -8,7 +8,6 @@ import robocasa  # noqa
 import robosuite
 from robosuite.controllers import load_composite_controller_config
 from robosuite.wrappers import GymWrapper
-from gymnasium.wrappers import TimeLimit
 from robocasa.utils.dataset_registry import SINGLE_STAGE_TASK_DATASETS, MULTI_STAGE_TASK_DATASETS
 
 from gr00t.eval.wrappers.multistep_wrapper import MultiStepWrapper
