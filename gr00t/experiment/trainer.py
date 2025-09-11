@@ -148,7 +148,7 @@ class DualBrainFQLTrainer(DualBrainTrainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         outputs = model(inputs)
         loss = outputs["loss"]
-        self.log({f"{k}": v for k, v in outputs.items()})
+        self.log({f"{k}": v.detach().item() for k, v in outputs.items()})
         return (loss, outputs) if return_outputs else loss
 
     def create_scheduler(self, num_training_steps: int, optimizer: torch.optim.Optimizer = None):
