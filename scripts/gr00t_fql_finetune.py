@@ -31,7 +31,6 @@ from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.experiment.runner import RLTrainRunner
-from gr00t.model.action_head.fql_action_head import CriticConfig, RLConfig
 from gr00t.model.gr00t_n1_fql import GR00T_N1_5_FQL
 from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.peft import get_lora_model
@@ -233,12 +232,12 @@ def main(config: ArgsConfig):
         print(f"Loaded {len(single_datasets)} datasets, with {config.dataset_path} ")
 
     # 1-3. critic config and rl config
-    critic_config = CriticConfig(
+    critic_config = dict(
         hidden_dim=config.hidden_dim,
         depth=config.depth,
         output_dim=config.output_dim,
     )
-    rl_config = RLConfig(
+    rl_config = dict(
         critic_action_horizon=config.critic_action_horizon,
         q_agg=config.q_agg,
         discount1=config.discount1,

@@ -26,10 +26,8 @@ from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedMode
 from transformers.feature_extraction_utils import BatchFeature
 
 from .action_head.fql_action_head import (
-    CriticConfig,
     FQLActionHead,
     FQLActionHeadConfig,
-    RLConfig,
 )
 from .backbone import EagleBackbone
 from .gr00t_n1 import GR00T_N1_5
@@ -208,7 +206,7 @@ class GR00T_N1_5_FQL(PreTrainedModel):
 
     @classmethod
     def from_pretrained(
-        cls, pretrained_model_name_or_path: str, critic_cfg: CriticConfig, rl_cfg: RLConfig, from_gr00t_n1_5: bool = False, **kwargs
+        cls, pretrained_model_name_or_path: str, critic_cfg: dict, rl_cfg: dict, from_gr00t_n1_5: bool = False, **kwargs
     ):
         tune_visual = kwargs.pop("tune_visual", True)
         tune_llm = kwargs.pop("tune_llm", False)

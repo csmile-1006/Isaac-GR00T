@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
 from dataclasses import dataclass, field
 
 import torch
@@ -35,6 +34,10 @@ class CriticConfig(PretrainedConfig):
     depth: int = field(default=4, metadata={"help": "Depth of the network."})
     output_dim: int = field(default=1, metadata={"help": "Output dimension."})
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 @dataclass
 class RLConfig(PretrainedConfig):
@@ -48,6 +51,11 @@ class RLConfig(PretrainedConfig):
     normalize_q: bool = field(default=True, metadata={"help": "Whether to normalize the Q-value."})
     alpha: float = field(default=3.0, metadata={"help": "Alpha for actor loss."})
     tau: float = field(default=0.005, metadata={"help": "Tau for polyak update."})
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 
 @dataclass
@@ -85,8 +93,8 @@ class FQLActionHeadConfig(PretrainedConfig):
     use_vlln: bool = field(default=True)
 
     vl_self_attention_cfg: dict = field(default_factory=dict)
-    critic_config: dict = field(default_factory=dict, metadata={"help": "Critic model config."})
-    rl_config: dict = field(default_factory=dict, metadata={"help": "RL training config."})
+    critic_config: dict = field(default_factory=dict)
+    rl_config: dict = field(default_factory=dict)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -110,7 +118,8 @@ class FQLActionHead(nn.Module):
         self.onestep_model = DiT(**config.diffusion_model_cfg)
         self.action_dim = config.action_dim
         self.action_horizon = config.action_horizon
-        self.critic_action_horizon = config.rl_config["critic_action_horizon"]
+        self.rl_config = config.rl_config
+        self.critic_action_horizon = self.rl_config.get("critic_action_horizon", 1)
         self.num_inference_timesteps = config.num_inference_timesteps
 
         self.state_encoder = CategorySpecificMLP(
@@ -155,13 +164,18 @@ class FQLActionHead(nn.Module):
             output_dim=self.action_dim,
         )
 
+        self.critic_config = config.critic_config
         self.critic = DoubleCritic(
             input_dim=self.input_embedding_dim * (self.critic_action_horizon + 2),
-            hidden_dims=[config.critic_config["hidden_dim"]] * config.critic_config["depth"],
-            output_dim=config.critic_config["output_dim"],
+            hidden_dims=[self.critic_config["hidden_dim"]] * self.critic_config["depth"],
+            output_dim=self.critic_config["output_dim"],
         )
 
-        self.target_critic = copy.deepcopy(self.critic)
+        self.target_critic = DoubleCritic(
+            input_dim=self.input_embedding_dim * (self.critic_action_horizon + 2),
+            hidden_dims=[self.critic_config["hidden_dim"]] * self.critic_config["depth"],
+            output_dim=self.critic_config["output_dim"],
+        )
         self.target_critic.load_state_dict(self.critic.state_dict())
         self.target_critic.eval()
 
@@ -177,7 +191,6 @@ class FQLActionHead(nn.Module):
         self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config
-        self.rl_config = config.rl_config
         self.set_trainable_parameters(config.tune_projector, config.tune_diffusion_model)
 
     def set_trainable_parameters(self, tune_projector: bool, tune_diffusion_model: bool, tune_critic: bool = True):
@@ -505,16 +518,17 @@ class FQLActionHead(nn.Module):
         q1, q2 = self.critic(vl_embed_features, state_features, actor_action_critic_features)
         q = (q1 + q2) / 2
         q_loss = -q.mean()
-        if self.rl_config["normalize_q"]:
+        if self.rl_config.get("normalize_q", False):
             lam = (1 / torch.abs(q).mean()).detach()
             q_loss = lam * q_loss
 
-        actor_loss = q_loss + self.rl_config["alpha"] * distillation_loss
+        actor_loss = q_loss + self.rl_config.get("alpha", 1.0) * distillation_loss
         metrics = {
+            "q_loss": q_loss.detach(),
             "q_mean": q.detach().mean(),
-            "q_std": q.std(),
-            "q_min": q.min(),
-            "q_max": q.max(),
+            "q_std": q.detach().std(),
+            "q_min": q.detach().min(),
+            "q_max": q.detach().max(),
             "mse": F.mse_loss(onestep_actions, multistep_actions).detach(),
         }
         return actor_loss, distillation_loss, metrics
@@ -580,9 +594,9 @@ class FQLActionHead(nn.Module):
 
         done = torch.prod(action_input.done, dim=-1)
         reward = action_input.reward
-        if self.rl_config["negative_reward"]:
+        if self.rl_config.get("negative_reward", False):
             reward -= 1
-        discounts1 = self.rl_config["discount1"] ** torch.arange(self.critic_action_horizon).to(reward.device)
+        discounts1 = self.rl_config.get("discount1", 0.99) ** torch.arange(self.critic_action_horizon).to(reward.device)
         scaled_rewards = torch.sum(reward * discounts1, dim=-1)
 
         with torch.no_grad():
@@ -596,31 +610,43 @@ class FQLActionHead(nn.Module):
             next_q1, next_q2 = self.target_critic(
                 next_vl_embed_features, next_state_features, next_action_critic_features
             )
-            if self.rl_config["q_agg"] == "min":
+            if self.rl_config.get("q_agg", "min") == "min":
                 next_q = torch.minimum(next_q1, next_q2)
-            elif self.rl_config["q_agg"] == "mean":
+            elif self.rl_config.get("q_agg", "min") == "mean":
                 next_q = (next_q1 + next_q2) / 2
             else:
-                assert False, f"Invalid q_agg: {self.rl_config['q_agg']}"
+                assert False, f"Invalid q_agg: {self.rl_config.get('q_agg', 'min')}"
 
             target_q = (
                 scaled_rewards
-                + (self.rl_config["discount2"] ** (self.rl_config["nstep"] * self.critic_action_horizon))
-                * done
+                + (self.rl_config.get("discount2", 0.99) ** (self.rl_config.get("nstep", 1) * self.critic_action_horizon))
+                * (1. - done)
                 * next_q
             )
         q1, q2 = self.critic(vl_embed_features, state_features, action_critic_features)
         critic_loss = ((target_q - q1) ** 2 + (target_q - q2) ** 2).mean()
-        q = (q1 + q2) / 2
+
+        next_q_val = next_q.detach()
+        target_q_val = target_q.detach()
+        q1_val = q1.detach()
+        q2_val = q2.detach()
         metrics = {
-            "target_q_mean": next_q.detach().mean(),
-            "target_q_std": next_q.std(),
-            "target_q_min": next_q.min(),
-            "target_q_max": next_q.max(),
-            "q_mean": q.detach().mean(),
-            "q_std": q.std(),
-            "q_min": q.min(),
-            "q_max": q.max(),
+            "target_q_mean": target_q_val.mean(),
+            "target_q_std": target_q_val.std(),
+            "target_q_min": target_q_val.min(),
+            "target_q_max": target_q_val.max(),
+            "next_q_mean": next_q_val.mean(),
+            "next_q_std": next_q_val.std(),
+            "next_q_min": next_q_val.min(),
+            "next_q_max": next_q_val.max(),
+            "q1_mean": q1_val.mean(),
+            "q1_std": q1_val.std(),
+            "q1_min": q1_val.min(),
+            "q1_max": q1.max(),
+            "q2_mean": q2_val.mean(),
+            "q2_std": q2_val.std(),
+            "q2_min": q2_val.min(),
+            "q2_max": q2_val.max(),
             "batch_reward": scaled_rewards.detach().mean(),
         }
         return critic_loss, metrics

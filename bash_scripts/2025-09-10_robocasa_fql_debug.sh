@@ -19,7 +19,7 @@ python scripts/gr00t_fql_finetune.py \
     --max-steps ${STEPS} \
     --data-config single_panda_gripper_rl \
     --batch-size ${BATCH_SIZE} \
-    --save-steps 100 \
+    --save-steps 50 \
     --run-name debug_${RUN_NAME} \
     --critic-action-horizon ${CRITIC_ACTION_HORIZON} \
     # --lora_rank 64 \
