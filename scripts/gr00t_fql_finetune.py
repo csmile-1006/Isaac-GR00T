@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import os
 import subprocess
 import sys
@@ -288,7 +289,7 @@ def main(config: ArgsConfig):
         if current_step < warmup_steps:
             return float(current_step) / float(max(1, warmup_steps))
         progress = (current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
-        return 0.5 * (1.0 + torch.cos(torch.pi * progress))
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
 
     # 2) constant lr
     def constant_lambda(current_step: int):
