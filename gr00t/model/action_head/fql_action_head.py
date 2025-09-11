@@ -25,37 +25,8 @@ from transformers.feature_extraction_utils import BatchFeature
 
 from gr00t.model.critic.critic import DoubleCritic
 
-from .action_encoder import swish
 from .cross_attention_dit import DiT, SelfAttentionTransformer
-from .flow_matching_action_head import CategorySpecificLinear, CategorySpecificMLP, MultiEmbodimentActionEncoder
-
-
-class MultiEmbodimentActionCriticEncoder(nn.Module):
-    def __init__(self, action_dim, hidden_size, num_embodiments):
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.num_embodiments = num_embodiments
-
-        # W1: R^{w x d}, W2: R^{w x 2w}, W3: R^{w x w}
-        self.W1 = CategorySpecificLinear(num_embodiments, action_dim, hidden_size)  # (d -> w)
-        self.W2 = CategorySpecificLinear(num_embodiments, hidden_size, hidden_size)  # (w -> w)
-
-    def forward(self, actions, cat_ids):
-        """
-        actions:   shape (B, T, action_dim)
-        timesteps: shape (B,)  -- a single scalar per batch item
-        cat_ids:   shape (B,)
-        returns:   shape (B, T, hidden_size)
-        """
-        B, T, _ = actions.shape
-
-        # 1) Standard action MLP step for shape => (B, T, w)
-        a_emb = swish(self.W1(actions, cat_ids))
-
-        # 2) W2 => (B, T, w)
-        x = self.W2(a_emb, cat_ids)
-
-        return x
+from .flow_matching_action_head import CategorySpecificMLP, MultiEmbodimentActionEncoder
 
 
 @dataclass
@@ -63,6 +34,20 @@ class CriticConfig(PretrainedConfig):
     hidden_dim: int = field(default=512, metadata={"help": "Hidden dimension."})
     depth: int = field(default=4, metadata={"help": "Depth of the network."})
     output_dim: int = field(default=1, metadata={"help": "Output dimension."})
+
+
+@dataclass
+class RLConfig(PretrainedConfig):
+    # RL parameters
+    critic_action_horizon: int = field(default=1, metadata={"help": "Critic action horizon."})
+    q_agg: str = field(default="min", metadata={"help": "Aggregation function for critic loss."})
+    discount1: float = field(default=0.99, metadata={"help": "Discount factor for inner MDP."})
+    discount2: float = field(default=0.99, metadata={"help": "Discount factor for outer MDP."})
+    negative_reward: bool = field(default=True, metadata={"help": "Whether the reward is negative."})
+    nstep: int = field(default=1, metadata={"help": "Number of steps for reward."})
+    normalize_q: bool = field(default=True, metadata={"help": "Whether to normalize the Q-value."})
+    alpha: float = field(default=3.0, metadata={"help": "Alpha for actor loss."})
+    tau: float = field(default=0.005, metadata={"help": "Tau for polyak update."})
 
 
 @dataclass
@@ -79,7 +64,6 @@ class FQLActionHeadConfig(PretrainedConfig):
     max_seq_len: int = field(default=1024, metadata={"help": "Maxium Sequence Length"})
     action_dim: int = field(default=7, metadata={"help": "Action dimension."})
     action_horizon: int = field(default=16, metadata={"help": "Action horizon."})
-    critic_action_horizon: int = field(default=1, metadata={"help": "Critic action horizon."})
     noise_beta_alpha: float = field(default=1.5, metadata={"help": ""})
     noise_beta_beta: float = field(default=1.0, metadata={"help": ""})
     noise_s: float = field(default=0.999, metadata={"help": "Flow matching noise Beta distribution s."})
@@ -101,16 +85,8 @@ class FQLActionHeadConfig(PretrainedConfig):
     use_vlln: bool = field(default=True)
 
     vl_self_attention_cfg: dict = field(default_factory=dict)
-
-    critic_config: dict = field(init=False, metadata={"help": "Critic model config."})
-
-    # RL parameters
-    q_agg: str = field(default="min", metadata={"help": "Aggregation function for critic loss."})
-    discount: float = field(default=0.99, metadata={"help": "Discount factor for MDP."})
-    nstep: int = field(default=1, metadata={"help": "Number of steps for reward."})
-    normalize_q: bool = field(default=True, metadata={"help": "Whether to normalize the Q-value."})
-    alpha: float = field(default=3.0, metadata={"help": "Alpha for actor loss."})
-    tau: float = field(default=0.005, metadata={"help": "Tau for polyak update."})
+    critic_config: dict = field(default_factory=dict, metadata={"help": "Critic model config."})
+    rl_config: dict = field(default_factory=dict, metadata={"help": "RL training config."})
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -134,7 +110,7 @@ class FQLActionHead(nn.Module):
         self.onestep_model = DiT(**config.diffusion_model_cfg)
         self.action_dim = config.action_dim
         self.action_horizon = config.action_horizon
-        self.critic_action_horizon = config.critic_action_horizon
+        self.critic_action_horizon = config.rl_config["critic_action_horizon"]
         self.num_inference_timesteps = config.num_inference_timesteps
 
         self.state_encoder = CategorySpecificMLP(
@@ -154,7 +130,7 @@ class FQLActionHead(nn.Module):
             hidden_size=self.input_embedding_dim,
             num_embodiments=config.max_num_embodiments,
         )
-        self.critic_action_encoder = MultiEmbodimentActionCriticEncoder(
+        self.critic_action_encoder = MultiEmbodimentActionEncoder(
             action_dim=config.action_dim,
             hidden_size=self.input_embedding_dim,
             num_embodiments=config.max_num_embodiments,
@@ -201,6 +177,7 @@ class FQLActionHead(nn.Module):
         self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config
+        self.rl_config = config.rl_config
         self.set_trainable_parameters(config.tune_projector, config.tune_diffusion_model)
 
     def set_trainable_parameters(self, tune_projector: bool, tune_diffusion_model: bool, tune_critic: bool = True):
@@ -404,7 +381,7 @@ class FQLActionHead(nn.Module):
 
     def compute_actor_loss(
         self, backbone_output: BatchFeature, action_input: BatchFeature
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Compute actor loss (distillation + Q-value) with proper gradient isolation."""
         # Set frozen modules to eval
         self.set_frozen_modules_to_eval_mode()
@@ -521,22 +498,30 @@ class FQLActionHead(nn.Module):
         # Actor loss 2) Q-value loss
         vl_embeds_mean = vl_embeds.mean(dim=1)
         vl_embed_features = self.backbone_encoder(vl_embeds_mean)
+        timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
         actor_action_critic_features = self.critic_action_encoder(
-            onestep_actions[:, -self.critic_action_horizon :], embodiment_id
+            onestep_actions[:, -self.critic_action_horizon :], timestep_tensor, embodiment_id
         )
         q1, q2 = self.critic(vl_embed_features, state_features, actor_action_critic_features)
         q = (q1 + q2) / 2
         q_loss = -q.mean()
-        if self.config.normalize_q:
+        if self.rl_config["normalize_q"]:
             lam = (1 / torch.abs(q).mean()).detach()
             q_loss = lam * q_loss
 
-        actor_loss = q_loss + self.config.alpha * distillation_loss
-        return actor_loss, distillation_loss
+        actor_loss = q_loss + self.rl_config["alpha"] * distillation_loss
+        metrics = {
+            "q_mean": q.detach().mean(),
+            "q_std": q.std(),
+            "q_min": q.min(),
+            "q_max": q.max(),
+            "mse": F.mse_loss(onestep_actions, multistep_actions).detach(),
+        }
+        return actor_loss, distillation_loss, metrics
 
     def compute_critic_loss(
         self, backbone_output: BatchFeature, next_backbone_output: BatchFeature, action_input: BatchFeature
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute critic loss with proper gradient isolation."""
         # Set frozen modules to eval
         self.set_frozen_modules_to_eval_mode()
@@ -577,48 +562,76 @@ class FQLActionHead(nn.Module):
         next_vl_embeds = next_backbone_output.backbone_features
         embodiment_id = action_input.embodiment_id
 
+        batch_size = vl_embeds.shape[0]
+        device = vl_embeds.device
+
         # Embed state.
         with torch.no_grad():
             state_features = self.state_encoder(action_input.state, embodiment_id)
-        action_critic_features = self.critic_action_encoder(action_input.action[:, -self.critic_action_horizon :], embodiment_id)
+        timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
+        action_critic_features = self.critic_action_encoder(
+            action_input.action[:, -self.critic_action_horizon :], timestep_tensor, embodiment_id
+        )
         vl_embeds_mean = vl_embeds.mean(dim=1)
         vl_embed_features = self.backbone_encoder(vl_embeds_mean)
 
         # Critic loss
         next_state_features = self.state_encoder(action_input.next_state, embodiment_id)
+
+        done = torch.prod(action_input.done, dim=-1)
+        reward = action_input.reward
+        if self.rl_config["negative_reward"]:
+            reward -= 1
+        discounts1 = self.rl_config["discount1"] ** torch.arange(self.critic_action_horizon).to(reward.device)
+        scaled_rewards = torch.sum(reward * discounts1, dim=-1)
+
         with torch.no_grad():
             next_action_input = BatchFeature(data={"state": action_input.next_state, "embodiment_id": embodiment_id})
             next_pred_actions = self.get_action(next_backbone_output, next_action_input)["action_pred"]
             next_vl_embeds_mean = next_vl_embeds.mean(dim=1)
             next_vl_embed_features = self.backbone_encoder(next_vl_embeds_mean)
             next_action_critic_features = self.critic_action_encoder(
-                next_pred_actions[:, -self.critic_action_horizon :], embodiment_id
+                next_pred_actions[:, -self.critic_action_horizon :], timestep_tensor, embodiment_id
             )
-            next_q1, next_q2 = self.target_critic(next_vl_embed_features, next_state_features, next_action_critic_features)
-            if self.config.q_agg == "min":
+            next_q1, next_q2 = self.target_critic(
+                next_vl_embed_features, next_state_features, next_action_critic_features
+            )
+            if self.rl_config["q_agg"] == "min":
                 next_q = torch.minimum(next_q1, next_q2)
-            elif self.config.q_agg == "mean":
+            elif self.rl_config["q_agg"] == "mean":
                 next_q = (next_q1 + next_q2) / 2
             else:
-                assert False, f"Invalid q_agg: {self.config.q_agg}"
+                assert False, f"Invalid q_agg: {self.rl_config['q_agg']}"
 
-            q = (
-                action_input.reward
-                + (self.config.discount ** (self.config.nstep * self.config.critic_action_horizon))
-                * action_input.done
+            target_q = (
+                scaled_rewards
+                + (self.rl_config["discount2"] ** (self.rl_config["nstep"] * self.critic_action_horizon))
+                * done
                 * next_q
             )
         q1, q2 = self.critic(vl_embed_features, state_features, action_critic_features)
-        critic_loss = ((q - q1) ** 2 + (q - q2) ** 2).mean()
-        return critic_loss
+        critic_loss = ((target_q - q1) ** 2 + (target_q - q2) ** 2).mean()
+        q = (q1 + q2) / 2
+        metrics = {
+            "target_q_mean": next_q.detach().mean(),
+            "target_q_std": next_q.std(),
+            "target_q_min": next_q.min(),
+            "target_q_max": next_q.max(),
+            "q_mean": q.detach().mean(),
+            "q_std": q.std(),
+            "q_min": q.min(),
+            "q_max": q.max(),
+            "batch_reward": scaled_rewards.detach().mean(),
+        }
+        return critic_loss, metrics
 
     def forward(
         self, backbone_output: BatchFeature, next_backbone_output: BatchFeature, action_input: BatchFeature
     ) -> BatchFeature:
         # Compute each loss separately to avoid gradient conflicts
         flow_matching_loss = self.compute_flow_matching_loss(backbone_output, action_input)
-        actor_loss, distillation_loss = self.compute_actor_loss(backbone_output, action_input)
-        critic_loss = self.compute_critic_loss(backbone_output, next_backbone_output, action_input)
+        actor_loss, distillation_loss, actor_metrics = self.compute_actor_loss(backbone_output, action_input)
+        critic_loss, critic_metrics = self.compute_critic_loss(backbone_output, next_backbone_output, action_input)
 
         total_loss = flow_matching_loss + critic_loss + actor_loss
 
@@ -628,28 +641,10 @@ class FQLActionHead(nn.Module):
             "distillation_loss": distillation_loss,
             "critic_loss": critic_loss,
             "actor_loss": actor_loss,
+            **{f"actor/{k}": v for k, v in actor_metrics.items()},
+            **{f"critic/{k}": v for k, v in critic_metrics.items()},
         }
         return BatchFeature(data=output_dict)
-
-    def update_target_network(self):
-        """Update target critic network using polyak averaging."""
-        for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
-            target_param.data.copy_(self.config.tau * param.data + (1.0 - self.config.tau) * target_param.data)
-
-    def get_individual_losses(
-        self, backbone_output: BatchFeature, next_backbone_output: BatchFeature, action_input: BatchFeature
-    ) -> dict[str, torch.Tensor]:
-        """Get individual losses for separate training to avoid gradient conflicts."""
-        flow_matching_loss = self.compute_flow_matching_loss(backbone_output, action_input)
-        actor_loss, distillation_loss = self.compute_actor_loss(backbone_output, action_input)
-        critic_loss = self.compute_critic_loss(backbone_output, next_backbone_output, action_input)
-
-        return {
-            "flow_matching_loss": flow_matching_loss,
-            "actor_loss": actor_loss,
-            "distillation_loss": distillation_loss,
-            "critic_loss": critic_loss,
-        }
 
     @torch.no_grad()
     def get_action(self, backbone_output: BatchFeature, action_input: BatchFeature) -> BatchFeature:

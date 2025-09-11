@@ -29,6 +29,7 @@ from .action_head.fql_action_head import (
     CriticConfig,
     FQLActionHead,
     FQLActionHeadConfig,
+    RLConfig,
 )
 from .backbone import EagleBackbone
 from .gr00t_n1 import GR00T_N1_5
@@ -206,7 +207,9 @@ class GR00T_N1_5_FQL(PreTrainedModel):
         return backbone_inputs, action_inputs
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path: str, from_gr00t_n1_5: bool = False, **kwargs):
+    def from_pretrained(
+        cls, pretrained_model_name_or_path: str, critic_cfg: CriticConfig, rl_cfg: RLConfig, from_gr00t_n1_5: bool = False, **kwargs
+    ):
         tune_visual = kwargs.pop("tune_visual", True)
         tune_llm = kwargs.pop("tune_llm", False)
         tune_projector = kwargs.pop("tune_projector", True)
@@ -251,11 +254,8 @@ class GR00T_N1_5_FQL(PreTrainedModel):
 
             # Transfer action head config
             action_head_cfg = FQLActionHeadConfig(**pretrained_gr00t_n1_5_cfg["action_head_cfg"])
-            critic_cfg = CriticConfig()
-            for key in critic_cfg.to_dict().keys():
-                if key in pretrained_gr00t_n1_5_cfg["action_head_cfg"].keys():
-                    setattr(critic_cfg, key, pretrained_gr00t_n1_5_cfg["action_head_cfg"][key])
             action_head_cfg.critic_config = critic_cfg
+            action_head_cfg.rl_config = rl_cfg
             new_cfg.action_head_cfg = action_head_cfg.to_dict()
 
             pretrained_model = cls(
@@ -278,6 +278,7 @@ class GR00T_N1_5_FQL(PreTrainedModel):
                 "onestep_action_encoder": "action_encoder",  # Uses same model
                 "action_decoder": "action_decoder",
                 "onestep_action_decoder": "action_decoder",  # Uses same model
+                "critic_action_encoder": "action_encoder",  # Uses same model
                 "vlln": "vlln",
                 "vl_self_attention": "vl_self_attention",
             }

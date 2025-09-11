@@ -880,7 +880,7 @@ class AgibotGenie1DataConfig:
 ###########################################################################################
 
 
-class SinglePandaGripperRLDataConfig_AS1(BaseDataConfig):
+class SinglePandaGripperRLDataConfig(BaseDataConfig):
     video_keys = [
         "video.left_view",
         "video.right_view",
@@ -913,16 +913,18 @@ class SinglePandaGripperRLDataConfig_AS1(BaseDataConfig):
         "action.control_mode",
     ]
 
-    reward_keys = ["reward.next.reward"]
-    done_keys = ["done.next.done"]
+    def __init__(self, AS=1):
+        self.AS = AS
 
-    language_keys = ["annotation.human.action.task_description"]
-    observation_indices = [0]
-    action_indices = list(range(16))
-    reward_indices = list(range(16))
-    done_indices = list(range(16))
-    next_observation_indices = [1] # This is the right next state for RL training
-    use_rl = True
+        self.reward_keys = ["reward.next.reward"]
+        self.done_keys = ["done.next.done"]
+        self.language_keys = ["annotation.human.action.task_description"]
+        self.observation_indices = [0]
+        self.action_indices = list(range(16))
+        self.reward_indices = list(range(self.AS))
+        self.done_indices = list(range(self.AS))
+        self.next_observation_indices = [self.AS]  # This is the right next state for RL training
+        self.use_rl = True
 
     def modality_config(self):
         video_modality = ModalityConfig(
@@ -1031,157 +1033,11 @@ class SinglePandaGripperRLDataConfig_AS1(BaseDataConfig):
 
         return ComposedModalityTransform(transforms=transforms)
 
-class SinglePandaGripperRLDataConfig_AS4(BaseDataConfig):
-    video_keys = [
-        "video.left_view",
-        "video.right_view",
-        "video.wrist_view",
-    ]
-    state_keys = [
-        "state.end_effector_position_relative",
-        "state.end_effector_rotation_relative",
-        "state.gripper_qpos",
-        "state.base_position",
-        "state.base_rotation",
-    ]
-    next_video_keys = [
-        "next_video.left_view",
-        "next_video.right_view",
-        "next_video.wrist_view",
-    ]
-    next_state_keys = [
-        "next_state.end_effector_position_relative",
-        "next_state.end_effector_rotation_relative",
-        "next_state.gripper_qpos",
-        "next_state.base_position",
-        "next_state.base_rotation",
-    ]
-    action_keys = [
-        "action.end_effector_position",
-        "action.end_effector_rotation",
-        "action.gripper_close",
-        "action.base_motion",
-        "action.control_mode",
-    ]
-
-    reward_keys = ["reward.next.reward"]
-    done_keys = ["done.next.done"]
-
-    language_keys = ["annotation.human.action.task_description"]
-    observation_indices = [0]
-    action_indices = list(range(16))
-    reward_indices = list(range(16))
-    done_indices = list(range(16))
-    next_observation_indices = [4]  # This is the right next state for RL training
-    use_rl = True
-
-    def modality_config(self):
-        video_modality = ModalityConfig(
-            delta_indices=self.observation_indices,
-            modality_keys=self.video_keys,
-        )
-        state_modality = ModalityConfig(
-            delta_indices=self.observation_indices,
-            modality_keys=self.state_keys,
-        )
-        action_modality = ModalityConfig(
-            delta_indices=self.action_indices,
-            modality_keys=self.action_keys,
-        )
-        language_modality = ModalityConfig(
-            delta_indices=self.observation_indices,
-            modality_keys=self.language_keys,
-        )
-        reward_modality = ModalityConfig(
-            delta_indices=self.reward_indices,
-            modality_keys=self.reward_keys,
-        )
-        done_modality = ModalityConfig(
-            delta_indices=self.done_indices,
-            modality_keys=self.done_keys,
-        )
-        next_state_modality = ModalityConfig(
-            delta_indices=self.next_observation_indices,
-            modality_keys=self.next_state_keys,
-        )
-        next_video_modality = ModalityConfig(
-            delta_indices=self.next_observation_indices,
-            modality_keys=self.next_video_keys,
-        )
-        modality_configs = {
-            "video": video_modality,
-            "state": state_modality,
-            "action": action_modality,
-            "language": language_modality,
-            "reward": reward_modality,
-            "done": done_modality,
-            "next_state": next_state_modality,
-            "next_video": next_video_modality,
-        }
-        return modality_configs
-
-    def transform(self):
-        video_keys = self.video_keys + self.next_video_keys
-        # video_keys = self.video_keys
-        transforms = [
-            # video transforms
-            VideoToTensor(apply_to=video_keys),
-            VideoCrop(apply_to=video_keys, scale=0.95),
-            VideoResize(apply_to=video_keys, height=224, width=224, interpolation="linear"),
-            VideoColorJitter(
-                apply_to=video_keys,
-                brightness=0.3,
-                contrast=0.4,
-                saturation=0.5,
-                hue=0.08,
-            ),
-            VideoToNumpy(apply_to=video_keys),
-            # state transforms
-            StateActionToTensor(apply_to=self.state_keys + self.next_state_keys),
-            StateActionTransform(
-                apply_to=self.state_keys + self.next_state_keys,
-                normalization_modes={
-                    "state.end_effector_position_relative": "min_max",
-                    "state.end_effector_rotation_relative": "min_max",
-                    "state.gripper_qpos": "min_max",
-                    "state.base_position": "min_max",
-                    "state.base_rotation": "min_max",
-                },
-                target_rotations={
-                    "state.end_effector_rotation_relative": "rotation_6d",
-                    "state.base_rotation": "rotation_6d",
-                },
-            ),
-            # action transforms
-            StateActionToTensor(apply_to=self.action_keys),
-            StateActionTransform(
-                apply_to=self.action_keys,
-                normalization_modes={
-                    "action.end_effector_position": "min_max",
-                    "action.end_effector_rotation": "min_max",
-                    "action.gripper_close": "binary",
-                    "action.base_motion": "min_max",
-                    "action.control_mode": "binary",
-                },
-            ),
-            # concat transforms
-            RLConcatTransform(
-                video_concat_order=self.video_keys,
-                state_concat_order=self.state_keys,
-                # next_video_concat_order=self.next_video_keys,
-                next_state_concat_order=self.next_state_keys,
-                action_concat_order=self.action_keys,
-            ),
-            GR00TRLTransform(
-                state_horizon=len(self.observation_indices),
-                action_horizon=len(self.action_indices),
-                max_state_dim=64,
-                max_action_dim=32,
-            ),
-        ]
-
-        return ComposedModalityTransform(transforms=transforms)
-
+    @classmethod
+    def create(cls, AS=1):
+        """Convenience method for AS=1 configuration"""
+        return cls(AS=AS)
+    
 
 ###########################################################################################
 
@@ -1415,8 +1271,7 @@ DATA_CONFIG_MAP = {
     "bimanual_panda_gripper": BimanualPandaGripperDataConfig(),
     "bimanual_panda_hand": BimanualPandaHandDataConfig(),
     "single_panda_gripper": SinglePandaGripperDataConfig(),
-    "single_panda_gripper_rl_as1": SinglePandaGripperRLDataConfig_AS1(),
-    "single_panda_gripper_rl_as4": SinglePandaGripperRLDataConfig_AS4(),
+    "single_panda_gripper_rl": SinglePandaGripperRLDataConfig,
     "single_panda_gripper_state_rl": SinglePandaGripperRLStateDataConfig(),
     "so100": So100DataConfig(),
     "so100_dualcam": So100DualCamDataConfig(),

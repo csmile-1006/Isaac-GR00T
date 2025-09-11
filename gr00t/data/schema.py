@@ -290,8 +290,6 @@ class RewardMetadata(BaseModel):
 
     shape: tuple[int, ...] = Field(..., description="Shape of the reward")
     dtype: str = Field(..., description="Data type of the reward")
-    discount: float = Field(..., description="Discount factor of the reward")
-    negative_reward: bool = Field(default=False, description="Whether the reward is negative")
 
 class DoneMetadata(BaseModel):
     """Metadata of the done modality"""

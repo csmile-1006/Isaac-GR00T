@@ -334,13 +334,11 @@ class LeRobotSingleDataset(Dataset):
         # 1.3. Reward and done modalities
         if self.use_rl:
             simplified_modality_meta["reward"] = {
-                "shape": [1],
+                "shape": self.modality_configs["reward"].delta_indices,
                 "dtype": "float64",
-                "discount": 0.8, # refer to discount factor for options framework.
-                "negative_reward": True,
             }
             simplified_modality_meta["done"] = {
-                "shape": [1],
+                "shape": self.modality_configs["done"].delta_indices,
                 "dtype": "bool",
             }
 
@@ -430,20 +428,9 @@ class LeRobotSingleDataset(Dataset):
             ]
         """
         all_steps: list[tuple[int, int]] = []
-        if self.use_rl:
-            assert self.delta_indices is not None, "Delta indices must be set before getting all steps"
-            # NOTE: the last action is not used for the next state, so we need to subtract the length of the action delta indices
-            # Get length of first action key's delta indices
-            action_key = next(key for key in self.delta_indices.keys() if key.startswith("action"))
-            pad = len(self.delta_indices[action_key]) - 1
-            for trajectory_id, trajectory_length in zip(self.trajectory_ids, self.trajectory_lengths):
-                effective_length = trajectory_length - pad
-                for base_index in range(effective_length):
-                    all_steps.append((trajectory_id, base_index))
-        else:
-            for trajectory_id, trajectory_length in zip(self.trajectory_ids, self.trajectory_lengths):
-                for base_index in range(trajectory_length):
-                    all_steps.append((trajectory_id, base_index))
+        for trajectory_id, trajectory_length in zip(self.trajectory_ids, self.trajectory_lengths):
+            for base_index in range(trajectory_length):
+                all_steps.append((trajectory_id, base_index))
         return all_steps
 
     def _get_modality_keys(self) -> dict:
@@ -797,7 +784,6 @@ class LeRobotSingleDataset(Dataset):
             np.ndarray: The data for the trajectory and step indices.
         """
         # Get the step indices
-        seq_len = len(self.delta_indices[key])
         step_indices = self.delta_indices[key] + base_index
         # Get the trajectory index
         trajectory_index = self.get_trajectory_index(trajectory_id)
@@ -815,6 +801,9 @@ class LeRobotSingleDataset(Dataset):
         assert self.curr_traj_data is not None, f"No data found for {trajectory_id=}"
         assert le_key in self.curr_traj_data.columns, f"No {le_key} found in {trajectory_id=}"
         data_array: np.ndarray = np.stack(self.curr_traj_data[le_key])  # type: ignore
+        # CUSTOM: for reward with successful demonstrations, increase the reward to last 10 executive timesteps
+        if self.use_rl and modality == "reward" and np.sum(data_array) > 0:
+            data_array[-10:] = 1
         assert data_array.ndim == 1, f"Expected 1D array, got {data_array.shape} array"
 
         # Retrieve the data and pad it
@@ -824,18 +813,7 @@ class LeRobotSingleDataset(Dataset):
             max_length=max_length,
             padding_strategy="zero",
         )
-
-        if modality == "reward":
-            reward_cfg = getattr(self.metadata.modalities, modality)
-            if reward_cfg.negative_reward:
-                data -= 1 # convert the reward scale from [0,1] to [-1,0]
-            discounts = reward_cfg.discount ** np.arange(seq_len)
-            output = (data * discounts).sum()
-
-        if modality == "done":
-            output = np.prod(data)
-
-        return output
+        return data
 
     def get_language(
         self,
@@ -904,7 +882,7 @@ class LeRobotSingleDataset(Dataset):
             return self.get_video(trajectory_id, modality, key, base_index)
         elif modality in ["state", "next_state", "action"]:
             return self.get_state_or_action(trajectory_id, modality, key, base_index)
-        elif modality == "reward" or modality == "done":
+        elif modality in ["reward", "done"]:
             return self.get_reward_or_done(trajectory_id, modality, key, base_index)
         elif modality == "language":
             return self.get_language(trajectory_id, key, base_index)

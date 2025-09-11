@@ -304,7 +304,7 @@ class RLTrainRunner(TrainRunner):
         polyak_update_callback = PolyakUpdateCallback(
             target_model=model.action_head.target_critic,
             source_model=model.action_head.critic,
-            tau=model.action_head.config.tau,
+            tau=model.action_head.config.rl_config["tau"],
         )
         trainer.add_callback(polyak_update_callback)
 

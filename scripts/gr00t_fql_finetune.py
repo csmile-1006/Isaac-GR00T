@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import os
 import subprocess
 import sys
@@ -23,13 +24,14 @@ from typing import List, Literal
 
 import torch
 import tyro
-from transformers import TrainingArguments
 from torch.optim.lr_scheduler import LambdaLR
+from transformers import TrainingArguments
 
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.experiment.runner import RLTrainRunner
+from gr00t.model.action_head.fql_action_head import CriticConfig, RLConfig
 from gr00t.model.gr00t_n1_fql import GR00T_N1_5_FQL
 from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.peft import get_lora_model
@@ -131,6 +133,47 @@ class ArgsConfig:
     run_name: str = "default"
     """Run name for logging."""
 
+    # Critic parameters
+    critic_lr: float = 3e-4
+    """Learning rate for the critic."""
+
+    hidden_dim: int = 512
+    """Hidden dimension for the critic."""
+
+    depth: int = 4
+    """Depth for the critic."""
+    
+    output_dim: int = 1
+    """Output dimension for the critic."""
+
+    # FQL parameters
+    q_agg: str = "min"
+    """Aggregation function for critic loss."""
+
+    discount1: float = 0.99
+    """Discount factor for inner MDP."""
+
+    discount2: float = 0.99
+    """Discount factor for outer MDP."""
+
+    negative_reward: bool = True
+    """Whether the reward is negative."""
+
+    nstep: int = 1
+    """Number of steps for reward."""
+
+    normalize_q: bool = True
+    """Whether to normalize the Q-value."""
+
+    alpha: float = 3.0
+    """Alpha for actor loss."""
+
+    tau: float = 0.005
+    """Tau for polyak update."""
+
+    critic_action_horizon: int = 1
+    """Action horizon for the critic."""
+
 
 #####################################################################################
 # main training function
@@ -143,7 +186,7 @@ def main(config: ArgsConfig):
     embodiment_tag = EmbodimentTag(config.embodiment_tag)
 
     # 1.1 modality configs and transforms
-    data_config_cls = DATA_CONFIG_MAP[config.data_config]
+    data_config_cls = DATA_CONFIG_MAP[config.data_config](AS=config.critic_action_horizon)
     modality_configs = data_config_cls.modality_config()
     transforms = data_config_cls.transform()
 
@@ -189,9 +232,29 @@ def main(config: ArgsConfig):
         )
         print(f"Loaded {len(single_datasets)} datasets, with {config.dataset_path} ")
 
+    # 1-3. critic config and rl config
+    critic_config = CriticConfig(
+        hidden_dim=config.hidden_dim,
+        depth=config.depth,
+        output_dim=config.output_dim,
+    )
+    rl_config = RLConfig(
+        critic_action_horizon=config.critic_action_horizon,
+        q_agg=config.q_agg,
+        discount1=config.discount1,
+        discount2=config.discount2,
+        negative_reward=config.negative_reward,
+        nstep=config.nstep,
+        normalize_q=config.normalize_q,
+        alpha=config.alpha,
+        tau=config.tau,
+    )
+
     # ------------ step 2: load model ------------
     model = GR00T_N1_5_FQL.from_pretrained(
         pretrained_model_name_or_path=config.base_model_path,
+        critic_cfg=critic_config,
+        rl_cfg=rl_config,
         tune_llm=config.tune_llm,  # backbone's LLM
         tune_visual=config.tune_visual,  # backbone's vision tower
         tune_projector=config.tune_projector,  # action head's projector
@@ -199,7 +262,7 @@ def main(config: ArgsConfig):
         tune_critic=config.tune_critic,  # action head's critic
         from_gr00t_n1_5=True,
     )
-
+    #
     # Set the model's compute_dtype to bfloat16
     model.compute_dtype = "bfloat16"
     model.config.compute_dtype = "bfloat16"
@@ -271,8 +334,8 @@ def main(config: ArgsConfig):
         },
         {
             "params": param_groups["critic"],
-            "lr": 3e-4,
-            "weight_decay": 1e-5,
+            "lr": config.critic_lr,
+            "weight_decay": config.weight_decay,
             "adam_beta1": 0.95,
             "adam_beta2": 0.999,
             "adam_epsilon": 1e-8,
@@ -288,7 +351,7 @@ def main(config: ArgsConfig):
         if current_step < warmup_steps:
             return float(current_step) / float(max(1, warmup_steps))
         progress = (current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
-        return 0.5 * (1.0 + torch.cos(torch.pi * progress))
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
 
     # 2) constant lr
     def constant_lambda(current_step: int):
