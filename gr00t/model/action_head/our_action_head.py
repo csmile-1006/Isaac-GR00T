@@ -22,7 +22,8 @@ from torch.distributions import Beta
 from transformers import PretrainedConfig
 from transformers.feature_extraction_utils import BatchFeature
 
-from gr00t.model.critic.networks import DoubleCritic
+from gr00t.model.critic.hlg import HLGaussLoss
+from gr00t.model.critic.networks import DoubleCritic, Value
 
 from .cross_attention_dit import DiT, SelfAttentionTransformer
 from .flow_matching_action_head import CategorySpecificMLP, MultiEmbodimentActionEncoder
@@ -39,6 +40,7 @@ class CriticConfig(PretrainedConfig):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+
 @dataclass
 class RLConfig(PretrainedConfig):
     # RL parameters
@@ -52,6 +54,11 @@ class RLConfig(PretrainedConfig):
     alpha: float = field(default=3.0, metadata={"help": "Alpha for actor loss."})
     tau: float = field(default=0.005, metadata={"help": "Tau for polyak update."})
 
+    num_atoms: int = field(default=101, metadata={"help": "Number of atoms for the critic."})
+    sigma: float = field(default=0.1, metadata={"help": "Sigma for the critic."})
+    expectile: float = field(default=0.9, metadata={"help": "Expectile for value loss."})
+    support_type: str = field(default="geometric", metadata={"help": "Support type for the critic."})
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         for key, value in kwargs.items():
@@ -59,7 +66,7 @@ class RLConfig(PretrainedConfig):
 
 
 @dataclass
-class FQLActionHeadConfig(PretrainedConfig):
+class OurActionHeadConfig(PretrainedConfig):
     """NOTE: N1.5 uses XEmbFlowmatchingPolicyHeadConfig as action head"""
 
     add_pos_embed: bool = field(default=True, metadata={"help": "Whether to add positional embedding"})
@@ -83,6 +90,8 @@ class FQLActionHeadConfig(PretrainedConfig):
     max_num_embodiments: int = field(default=32, metadata={"help": "Number of embodiments."})
     tune_projector: bool = field(default=True, metadata={"help": "Whether to tune the projector."})
     tune_diffusion_model: bool = field(default=True, metadata={"help": "Whether to tune the diffusion model."})
+    tune_critic: bool = field(default=True, metadata={"help": "Whether to tune the critic."})
+    tune_value: bool = field(default=True, metadata={"help": "Whether to tune the value."})
     load_pretrained_det_decode_layer_path: str = field(
         default="", metadata={"help": "Path to pretrained detection model."}
     )
@@ -94,6 +103,7 @@ class FQLActionHeadConfig(PretrainedConfig):
 
     vl_self_attention_cfg: dict = field(default_factory=dict)
     critic_config: dict = field(default_factory=dict)
+    value_config: dict = field(default_factory=dict)
     rl_config: dict = field(default_factory=dict)
 
     def __init__(self, **kwargs):
@@ -102,13 +112,13 @@ class FQLActionHeadConfig(PretrainedConfig):
             setattr(self, key, value)
 
 
-class FQLActionHead(nn.Module):
-    config_class = FQLActionHeadConfig
+class OurActionHead(nn.Module):
+    config_class = OurActionHeadConfig
     supports_gradient_checkpointing = True
 
     def __init__(
         self,
-        config: FQLActionHeadConfig,
+        config: OurActionHeadConfig,
     ):
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -118,8 +128,8 @@ class FQLActionHead(nn.Module):
         self.onestep_model = DiT(**config.diffusion_model_cfg)
         self.action_dim = config.action_dim
         self.action_horizon = config.action_horizon
-        self.rl_config = config.rl_config
-        self.critic_action_horizon = self.rl_config.get("critic_action_horizon", 1)
+        self.rl_config = RLConfig(**config.rl_config)
+        self.critic_action_horizon = self.rl_config.critic_action_horizon
         self.num_inference_timesteps = config.num_inference_timesteps
 
         self.state_encoder = CategorySpecificMLP(
@@ -164,21 +174,41 @@ class FQLActionHead(nn.Module):
             output_dim=self.action_dim,
         )
 
-        self.critic_config = config.critic_config
+        self.value_config = CriticConfig(**config.value_config)
+        self.value = Value(
+            input_dim=self.input_embedding_dim * 2,
+            hidden_size=self.value_config.hidden_dim,
+            depth=self.value_config.depth,
+            output_dim=self.rl_config.num_atoms,
+        )
+
+        self.critic_config = CriticConfig(**config.critic_config)
         self.critic = DoubleCritic(
             input_dim=self.input_embedding_dim * (self.critic_action_horizon + 2),
-            hidden_dims=[self.critic_config["hidden_dim"]] * self.critic_config["depth"],
-            output_dim=self.critic_config["output_dim"],
+            hidden_dims=[self.critic_config.hidden_dim] * self.critic_config.depth,
+            output_dim=self.rl_config.num_atoms,
         )
 
         self.target_critic = DoubleCritic(
             input_dim=self.input_embedding_dim * (self.critic_action_horizon + 2),
-            hidden_dims=[self.critic_config["hidden_dim"]] * self.critic_config["depth"],
-            output_dim=self.critic_config["output_dim"],
+            hidden_dims=[self.critic_config.hidden_dim] * self.critic_config.depth,
+            output_dim=self.rl_config.num_atoms,
         )
         self.target_critic.load_state_dict(self.critic.state_dict())
         self.target_critic.eval()
-
+        # compute v_min and v_max according to the discount factor
+        if self.rl_config.negative_reward:
+            v_min = -1 * (1 / (1 - self.rl_config.discount2))
+            v_max = 0.0
+        else:
+            v_min = 0.0
+            v_max = 1.0
+        self.hlg = HLGaussLoss(
+            min_value=v_min,
+            max_value=v_max,
+            num_bins=self.rl_config.num_atoms,
+            sigma=self.rl_config.sigma * ((v_max - v_min) / self.rl_config.num_atoms),
+        )
         self.vlln = nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
         self.vl_self_attention = (
             SelfAttentionTransformer(**config.vl_self_attention_cfg) if config.use_vlln else nn.Identity()
@@ -191,11 +221,16 @@ class FQLActionHead(nn.Module):
         self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config
-        self.set_trainable_parameters(config.tune_projector, config.tune_diffusion_model)
+        self.set_trainable_parameters(
+            config.tune_projector, config.tune_diffusion_model, config.tune_value, config.tune_critic
+        )
 
-    def set_trainable_parameters(self, tune_projector: bool, tune_diffusion_model: bool, tune_critic: bool = True):
+    def set_trainable_parameters(
+        self, tune_projector: bool, tune_diffusion_model: bool, tune_value: bool, tune_critic: bool
+    ):
         self.tune_projector = tune_projector
         self.tune_diffusion_model = tune_diffusion_model
+        self.tune_value = tune_value
         self.tune_critic = tune_critic
         for p in self.parameters():
             p.requires_grad = True
@@ -214,7 +249,10 @@ class FQLActionHead(nn.Module):
             self.model.requires_grad_(False)
             self.onestep_model.requires_grad_(False)
         if not tune_critic:
+            self.critic_action_encoder.requires_grad_(False)
             self.critic.requires_grad_(False)
+        if not tune_value:
+            self.value.requires_grad_(False)
         print(f"Tune action head projector: {self.tune_projector}")
         print(f"Tune action head diffusion model: {self.tune_diffusion_model}")
         print(f"Tune action head critic: {self.tune_critic}")
@@ -240,6 +278,7 @@ class FQLActionHead(nn.Module):
         # Collect all parameters for each group (with requires_grad)
         flow_matching_params = []
         actor_params = []
+        value_params = []
         critic_params = []
 
         if self.tune_projector:
@@ -255,18 +294,26 @@ class FQLActionHead(nn.Module):
             flow_matching_params.extend(list(self.model.parameters()))
             actor_params.extend(list(self.onestep_model.parameters()))
 
+        if self.tune_value:
+            value_params.extend(list(self.value.parameters()))
+
         if self.tune_critic:
             critic_params.extend(list(self.critic_action_encoder.parameters()))
             critic_params.extend(list(self.critic.parameters()))
-            critic_params.extend(list(self.target_critic.parameters()))
             critic_params.extend(list(self.backbone_encoder.parameters()))
 
         # Only keep parameters that require gradients
         flow_matching_params = [p for p in flow_matching_params if p.requires_grad]
         actor_params = [p for p in actor_params if p.requires_grad]
         critic_params = [p for p in critic_params if p.requires_grad]
+        value_params = [p for p in value_params if p.requires_grad]
 
-        return {"flow_matching": flow_matching_params, "actor": actor_params, "critic": critic_params}
+        return {
+            "flow_matching": flow_matching_params,
+            "actor": actor_params,
+            "value": value_params,
+            "critic": critic_params,
+        }
         # if self.freeze_decode_layer:
         #     self.decode_layer.requires_grad_(False)
 
@@ -283,16 +330,17 @@ class FQLActionHead(nn.Module):
                 self.action_decoder.eval()
                 self.onestep_action_encoder.eval()
                 self.onestep_action_decoder.eval()
-                self.critic_action_encoder.eval()
-                self.backbone_encoder.eval()
                 if self.config.add_pos_embed:
                     self.position_embedding.eval()
             if not self.tune_diffusion_model:
                 self.model.eval()
                 self.onestep_model.eval()
             if not self.tune_critic:
+                self.critic_action_encoder.eval()
                 self.critic.eval()
-                self.target_critic.eval()
+            if not self.tune_value:
+                self.value.eval()
+                self.backbone_encoder.eval()
 
     def sample_time(self, batch_size, device, dtype):
         sample = self.beta_dist.sample([batch_size]).to(device, dtype=dtype)
@@ -334,6 +382,8 @@ class FQLActionHead(nn.Module):
                 action_input[k] = expanded
 
         # Get vision and language embeddings.
+        # NOTE: detach the vl_embeds to avoid gradient flow to the VLLN module in flow matching loss
+        # Only flow gradient to the flow matching loss
         vl_embs = backbone_output.backbone_features
         device = vl_embs.device
 
@@ -421,7 +471,9 @@ class FQLActionHead(nn.Module):
                 action_input[k] = expanded
 
         # Get vision and language embeddings.
-        vl_embeds = backbone_output.backbone_features
+        # NOTE: detach the vl_embeds to avoid gradient flow to the VLLN module in actor loss
+        # Only actor gradient to the actor loss
+        vl_embeds = backbone_output.backbone_features.detach()
         embodiment_id = action_input.embodiment_id
         batch_size = vl_embeds.shape[0]
 
@@ -492,6 +544,7 @@ class FQLActionHead(nn.Module):
             )
 
         # One-step diffusion
+        # NOTE: detach the vl_embeds to avoid gradient flow to the VLLN module
         onestep_actions = run_diffusion(
             noises,
             state_features,
@@ -512,17 +565,17 @@ class FQLActionHead(nn.Module):
         vl_embeds_mean = vl_embeds.mean(dim=1)
         vl_embed_features = self.backbone_encoder(vl_embeds_mean)
         timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
-        actor_action_critic_features = self.critic_action_encoder(
-            onestep_actions[:, :self.critic_action_horizon], timestep_tensor, embodiment_id
+        critic_action_features = self.critic_action_encoder(
+            onestep_actions[:, : self.critic_action_horizon], timestep_tensor, embodiment_id
         )
-        q1, q2 = self.critic(vl_embed_features, state_features, actor_action_critic_features)
+        q1, q2 = self.critic(vl_embed_features, state_features, critic_action_features)
         q = (q1 + q2) / 2
         q_loss = -q.mean()
-        if self.rl_config.get("normalize_q", False):
+        if self.rl_config.normalize_q:
             lam = (1 / torch.abs(q).mean()).detach()
             q_loss = lam * q_loss
 
-        actor_loss = q_loss + self.rl_config.get("alpha", 1.0) * distillation_loss
+        actor_loss = q_loss + self.rl_config.alpha * distillation_loss
         metrics = {
             "q_loss": q_loss.detach(),
             "q_mean": q.detach().mean(),
@@ -532,6 +585,95 @@ class FQLActionHead(nn.Module):
             "mse": F.mse_loss(onestep_actions, multistep_actions).detach(),
         }
         return actor_loss, distillation_loss, metrics
+
+    def compute_value_loss(
+        self, backbone_output: BatchFeature, action_input: BatchFeature
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        # Set frozen modules to eval
+        self.set_frozen_modules_to_eval_mode()
+
+        backbone_output = self.process_backbone_output(backbone_output)
+
+        if self.config.expand_batch is not None:
+            for k, v in backbone_output.items():
+                ndim = len(v.shape)
+                factors = [self.config.expand_batch]
+                while len(factors) < ndim:
+                    factors.append(1)
+                factors = tuple(factors)
+                expanded = v.repeat(*factors)
+                backbone_output[k] = expanded
+
+            for k, v in action_input.items():
+                ndim = len(v.shape)
+                factors = [self.config.expand_batch]
+                while len(factors) < ndim:
+                    factors.append(1)
+                factors = tuple(factors)
+                expanded = v.repeat(*factors)
+                action_input[k] = expanded
+
+        # Get vision and language embeddings.
+        # NOTE: detach the vl_embeds to avoid gradient flow to the VLLN module in value loss
+        # Only value gradient to the value loss
+        vl_embeds = backbone_output.backbone_features.detach()
+        embodiment_id = action_input.embodiment_id
+
+        batch_size = vl_embeds.shape[0]
+        device = vl_embeds.device
+
+        # Embed state.
+        with torch.no_grad():
+            state_features = self.state_encoder(action_input.state, embodiment_id)
+        timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
+        vl_embeds_mean = vl_embeds.mean(dim=1)
+        vl_embed_features = self.backbone_encoder(vl_embeds_mean)
+
+        v_logits = self.value(vl_embed_features, state_features)
+        v_probs = torch.softmax(v_logits, dim=-1)
+        vs = self.hlg.transform_from_probs(v_probs)
+
+        # Value loss
+        with torch.no_grad():
+            vl_embed_features = self.backbone_encoder(vl_embeds_mean)
+            critic_action_features = self.critic_action_encoder(
+                action_input.action[:, : self.critic_action_horizon], timestep_tensor, embodiment_id
+            )
+            q1_logits, q2_logits = self.target_critic(vl_embed_features, state_features, critic_action_features)
+            q_logits = torch.stack([q1_logits, q2_logits], dim=0)
+            q_probs = torch.softmax(q_logits, dim=-1)
+            qs = self.hlg.transform_from_probs(q_probs)
+
+            if self.rl_config.q_agg == "min":
+                min_q_idx = torch.argmin(qs, dim=0)
+                batch_indices = torch.arange(batch_size, device=device)
+                q_logit = q_logits[min_q_idx, batch_indices]
+                q_prob = torch.softmax(q_logit, dim=-1)
+                q = self.hlg.transform_from_probs(q_prob)
+            elif self.rl_config.q_agg == "mean":
+                q_logit = q_logits / 2
+                q_prob = q_probs / 2
+                q = self.hlg.transform_from_probs(q_prob)
+            else:
+                assert False, f"Invalid q_agg: {self.rl_config.q_agg}"
+
+        g_hard = torch.where(q >= vs, self.rl_config.expectile, 1 - self.rl_config.expectile)
+        # Explicit cross entropy implementation: -sum(target * log_softmax(input))
+        log_probs = F.log_softmax(v_logits, dim=-1)
+        ce_loss = -(q_prob * log_probs).sum(dim=-1)
+        value_loss = (g_hard * ce_loss).mean()
+
+        metrics = {
+            "target_q_mean": q.mean(),
+            "target_q_std": q.std(),
+            "target_q_min": q.min(),
+            "target_q_max": q.max(),
+            "v_mean": vs.mean(),
+            "v_std": vs.std(),
+            "v_min": vs.min(),
+            "v_max": vs.max(),
+        }
+        return value_loss, metrics
 
     def compute_critic_loss(
         self, backbone_output: BatchFeature, next_backbone_output: BatchFeature, action_input: BatchFeature
@@ -572,8 +714,10 @@ class FQLActionHead(nn.Module):
                 next_backbone_output[k] = expanded
 
         # Get vision and language embeddings.
-        vl_embeds = backbone_output.backbone_features
-        next_vl_embeds = next_backbone_output.backbone_features
+        # NOTE: detach the vl_embeds to avoid gradient flow to the VLLN module in critic loss
+        # Only critic gradient to the critic loss
+        vl_embeds = backbone_output.backbone_features.detach()
+        next_vl_embeds = next_backbone_output.backbone_features.detach()
         embodiment_id = action_input.embodiment_id
 
         batch_size = vl_embeds.shape[0]
@@ -583,70 +727,56 @@ class FQLActionHead(nn.Module):
         with torch.no_grad():
             state_features = self.state_encoder(action_input.state, embodiment_id)
         timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
-        action_critic_features = self.critic_action_encoder(
-            action_input.action[:, :self.critic_action_horizon], timestep_tensor, embodiment_id
+        critic_action_features = self.critic_action_encoder(
+            action_input.action[:, : self.critic_action_horizon], timestep_tensor, embodiment_id
         )
         vl_embeds_mean = vl_embeds.mean(dim=1)
         vl_embed_features = self.backbone_encoder(vl_embeds_mean)
 
         # Critic loss
-        next_state_features = self.state_encoder(action_input.next_state, embodiment_id)
-
         done = torch.prod(action_input.done, dim=-1)
         reward = action_input.reward
-        if self.rl_config.get("negative_reward", False):
+        if self.rl_config.negative_reward:
             reward -= 1
-        discounts1 = self.rl_config.get("discount1", 0.99) ** torch.arange(self.critic_action_horizon).to(reward.device)
+        discounts1 = self.rl_config.discount1 ** torch.arange(self.critic_action_horizon).to(reward.device)
         scaled_rewards = torch.sum(reward * discounts1, dim=-1)
 
         with torch.no_grad():
-            next_action_input = BatchFeature(data={"state": action_input.next_state, "embodiment_id": embodiment_id})
-            next_pred_actions = self.get_action(next_backbone_output, next_action_input)["action_pred"]
             next_vl_embeds_mean = next_vl_embeds.mean(dim=1)
             next_vl_embed_features = self.backbone_encoder(next_vl_embeds_mean)
-            next_action_critic_features = self.critic_action_encoder(
-                next_pred_actions[:, :self.critic_action_horizon], timestep_tensor, embodiment_id
-            )
-            next_q1, next_q2 = self.target_critic(
-                next_vl_embed_features, next_state_features, next_action_critic_features
-            )
-            if self.rl_config.get("q_agg", "min") == "min":
-                next_q = torch.minimum(next_q1, next_q2)
-            elif self.rl_config.get("q_agg", "min") == "mean":
-                next_q = (next_q1 + next_q2) / 2
-            else:
-                assert False, f"Invalid q_agg: {self.rl_config.get('q_agg', 'min')}"
+            next_state_features = self.state_encoder(action_input.next_state, embodiment_id)
 
-            target_q = (
+            v_logits = self.value(next_vl_embed_features, next_state_features)
+            v_probs = torch.softmax(v_logits, dim=-1)
+            vs = self.hlg.transform_from_probs(v_probs)
+
+            target_v = (
                 scaled_rewards
-                + (self.rl_config.get("discount2", 0.99) ** (self.rl_config.get("nstep", 1) * self.critic_action_horizon))
-                * (1. - done)
-                * next_q
+                + (self.rl_config.discount2 ** (self.rl_config.nstep * self.critic_action_horizon)) * (1.0 - done) * vs
             )
-        q1, q2 = self.critic(vl_embed_features, state_features, action_critic_features)
-        critic_loss = ((target_q - q1) ** 2 + (target_q - q2) ** 2).mean()
 
-        next_q_val = next_q.detach()
-        target_q_val = target_q.detach()
-        q1_val = q1.detach()
-        q2_val = q2.detach()
+        q1_logits, q2_logits = self.critic(vl_embed_features, state_features, critic_action_features)
+
+        q1_probs = torch.softmax(q1_logits, dim=-1)
+        q2_probs = torch.softmax(q2_logits, dim=-1)
+        q1 = self.hlg.transform_from_probs(q1_probs)
+        q2 = self.hlg.transform_from_probs(q2_probs)
+
+        critic_loss = (self.hlg(q1_logits, target_v) + self.hlg(q2_logits, target_v)) / 2
+
         metrics = {
-            "target_q_mean": target_q_val.mean(),
-            "target_q_std": target_q_val.std(),
-            "target_q_min": target_q_val.min(),
-            "target_q_max": target_q_val.max(),
-            "next_q_mean": next_q_val.mean(),
-            "next_q_std": next_q_val.std(),
-            "next_q_min": next_q_val.min(),
-            "next_q_max": next_q_val.max(),
-            "q1_mean": q1_val.mean(),
-            "q1_std": q1_val.std(),
-            "q1_min": q1_val.min(),
+            "target_v_mean": target_v.mean(),
+            "target_v_std": target_v.std(),
+            "target_v_min": target_v.min(),
+            "target_v_max": target_v.max(),
+            "q1_mean": q1.mean(),
+            "q1_std": q1.std(),
+            "q1_min": q1.min(),
             "q1_max": q1.max(),
-            "q2_mean": q2_val.mean(),
-            "q2_std": q2_val.std(),
-            "q2_min": q2_val.min(),
-            "q2_max": q2_val.max(),
+            "q2_mean": q2.mean(),
+            "q2_std": q2.std(),
+            "q2_min": q2.min(),
+            "q2_max": q2.max(),
             "batch_reward": scaled_rewards.detach().mean(),
         }
         return critic_loss, metrics
@@ -656,17 +786,20 @@ class FQLActionHead(nn.Module):
     ) -> BatchFeature:
         # Compute each loss separately to avoid gradient conflicts
         flow_matching_loss = self.compute_flow_matching_loss(backbone_output, action_input)
-        actor_loss, distillation_loss, actor_metrics = self.compute_actor_loss(backbone_output, action_input)
+        value_loss, value_metrics = self.compute_value_loss(backbone_output, action_input)
         critic_loss, critic_metrics = self.compute_critic_loss(backbone_output, next_backbone_output, action_input)
+        actor_loss, distillation_loss, actor_metrics = self.compute_actor_loss(backbone_output, action_input)
 
-        total_loss = flow_matching_loss + critic_loss + actor_loss
+        total_loss = flow_matching_loss + value_loss + critic_loss + actor_loss
 
         output_dict = {
             "loss": total_loss,
             "flow_matching_loss": flow_matching_loss,
             "distillation_loss": distillation_loss,
+            "value_loss": value_loss,
             "critic_loss": critic_loss,
             "actor_loss": actor_loss,
+            **{f"value/{k}": v for k, v in value_metrics.items()},
             **{f"actor/{k}": v for k, v in actor_metrics.items()},
             **{f"critic/{k}": v for k, v in critic_metrics.items()},
         }
@@ -714,7 +847,7 @@ class FQLActionHead(nn.Module):
         )
         pred = self.action_decoder(model_output, embodiment_id)
 
-        pred_velocity = pred[:, :self.critic_action_horizon]
+        pred_velocity = pred[:, : self.critic_action_horizon]
 
         actions = actions + pred_velocity
         return BatchFeature(data={"action_pred": actions})
