@@ -880,6 +880,236 @@ class DatasetManager:
 
         print(f"\n✅ Split finished!\n  • Output directory: {output_dir}")
 
+    # ─────────────────────────────────── SUCCESS DEMOS Operation ─────────────────────────────────── #
+
+    def extract_success_demos(
+        self,
+        env_name: str,
+        dataset_dir: Path,
+        output_dir: Path,
+        max_length: Optional[int] = None,
+        chunk_name: str = CHUNK_NAME_DEFAULT,
+        verbose: bool = False,
+    ):
+        """
+        Extract only successful episodes from a dataset based on episode length or reward sum.
+
+        Args:
+            dataset_dir: Path to the source dataset
+            output_dir: Path where the success-only dataset will be saved
+            max_length: Maximum episode length to consider as success (if None, only reward-based filtering)
+            chunk_name: Name of the data chunk to process
+            verbose: Enable verbose output
+        """
+        if verbose:
+            print(f"Extracting success demos from {dataset_dir} to {output_dir}")
+            print(f"Max length threshold: {max_length}")
+            print(f"Chunk name: {chunk_name}")
+
+        # Read episodes metadata
+        episodes_file = dataset_dir / "meta" / "episodes.jsonl"
+        if not episodes_file.exists():
+            raise FileNotFoundError(f"Episodes file not found: {episodes_file}")
+
+        episodes = self.read_jsonl(episodes_file)
+        if verbose:
+            print(f"Found {len(episodes)} episodes in source dataset")
+
+        # Find success episodes based on length criteria
+        success_episodes = []
+        if max_length is not None:
+            success_episodes = [ep for ep in episodes if ep.get("length", float("inf")) < max_length]
+            if verbose:
+                print(f"Found {len(success_episodes)} episodes with length < {max_length}")
+
+        # Find success episodes based on reward sum
+        reward_success_episodes = self._find_reward_success_episodes(dataset_dir, chunk_name, verbose)
+
+        # Combine both criteria (intersection)
+        all_success_episode_ids = set([ep["episode_index"] for ep in success_episodes])
+        all_success_episode_ids.intersection_update(reward_success_episodes)
+
+        # Filter episodes to only include success ones
+        final_success_episodes = [ep for ep in episodes if ep["episode_index"] in all_success_episode_ids]
+
+        if verbose:
+            print(f"Total success episodes: {len(final_success_episodes)}")
+            print(f"Success rate: {len(final_success_episodes) / len(episodes) * 100:.1f}%")
+
+        if not final_success_episodes:
+            print("⚠️  No success episodes found!")
+            return
+
+        output_dir = output_dir / f"{env_name}_num{len(final_success_episodes)}" / "lerobot"
+        # Create output directory structure
+        self.safe_mkdir(output_dir / "meta")
+        self.safe_mkdir(output_dir / "data" / chunk_name)
+        self.safe_mkdir(output_dir / "videos" / chunk_name)
+
+        # Copy success episodes and renumber them
+        self._copy_success_episodes(dataset_dir, output_dir, final_success_episodes, chunk_name, verbose)
+
+        # Update metadata files
+        self._update_metadata_for_success_demos(dataset_dir, output_dir, final_success_episodes, verbose)
+
+        print("\n✅ Success demos extraction finished!")
+        print(f"  • Output directory: {output_dir}")
+        print(f"  • Success episodes: {len(final_success_episodes)}")
+
+    def _find_reward_success_episodes(self, dataset_dir: Path, chunk_name: str, verbose: bool = False) -> List[int]:
+        """Find episodes with non-zero reward sum."""
+        data_dir = dataset_dir / "data" / chunk_name
+        if not data_dir.exists():
+            if verbose:
+                print(f"Data directory not found: {data_dir}")
+            return []
+
+        parquet_files = list(data_dir.glob("episode_*.parquet"))
+        if not parquet_files:
+            if verbose:
+                print(f"No parquet files found in {data_dir}")
+            return []
+
+        success_episode_ids = []
+
+        for parquet_file in parquet_files:
+            try:
+                # Read parquet file
+                df = pd.read_parquet(parquet_file)
+
+                # Check if reward column exists
+                if "next.reward" not in df.columns:
+                    if verbose:
+                        print(f"No reward column found in {parquet_file}")
+                    continue
+
+                # Calculate reward sum
+                reward_sum = df["next.reward"].sum()
+
+                if reward_sum > 0:
+                    # Extract episode index from filename
+                    episode_id = self._extract_idx_from_name(parquet_file.stem)
+                    success_episode_ids.append(episode_id)
+
+                    if verbose:
+                        print(f"Episode {episode_id}: reward_sum = {reward_sum}")
+
+            except Exception as e:
+                if verbose:
+                    print(f"Error processing {parquet_file}: {e}")
+                continue
+
+        if verbose:
+            print(f"Found {len(success_episode_ids)} episodes with non-zero reward sum")
+
+        return success_episode_ids
+
+    def _copy_success_episodes(
+        self, dataset_dir: Path, output_dir: Path, success_episodes: List[Dict], chunk_name: str, verbose: bool = False
+    ):
+        """Copy success episodes and renumber them."""
+        if verbose:
+            print("\n--- Copying Parquet Files ---")
+
+        # Copy and renumber parquet files
+        for new_idx, episode in enumerate(success_episodes):
+            old_episode_id = episode["episode_index"]
+            old_parquet = dataset_dir / "data" / chunk_name / f"episode_{old_episode_id:06d}.parquet"
+            new_parquet = output_dir / "data" / chunk_name / f"episode_{new_idx:06d}.parquet"
+
+            if old_parquet.exists():
+                # Read and update indices in parquet file
+                df = pd.read_parquet(old_parquet)
+
+                # Update episode_index and index columns
+                if "episode_index" in df.columns:
+                    df["episode_index"] = new_idx
+                if "index" in df.columns:
+                    # Update global index to be sequential
+                    df["index"] = range(len(df))
+
+                # Save updated parquet file
+                df.to_parquet(new_parquet, index=False)
+
+                if verbose:
+                    print(f"  Copied episode {old_episode_id} -> {new_idx}")
+            else:
+                if verbose:
+                    print(f"  ⚠️  Parquet file not found: {old_parquet}")
+
+        if verbose:
+            print("\n--- Copying Video Files ---")
+
+        # Copy and renumber video files
+        for new_idx, episode in enumerate(success_episodes):
+            old_episode_id = episode["episode_index"]
+
+            # Find video files (they might be in subdirectories)
+            video_src_dir = dataset_dir / "videos" / chunk_name
+            video_dst_dir = output_dir / "videos" / chunk_name
+
+            if video_src_dir.exists():
+                # Find all video files for this episode
+                for video_file in video_src_dir.rglob(f"episode_{old_episode_id:06d}.mp4"):
+                    # Recreate the directory structure
+                    rel_path = video_file.relative_to(video_src_dir)
+                    new_video_path = video_dst_dir / rel_path.parent / f"episode_{new_idx:06d}.mp4"
+
+                    self.safe_mkdir(new_video_path.parent)
+                    shutil.copy2(video_file, new_video_path)
+
+                    if verbose:
+                        print(f"  Copied video {old_episode_id} -> {new_idx}")
+
+    def _update_metadata_for_success_demos(
+        self, dataset_dir: Path, output_dir: Path, success_episodes: List[Dict], verbose: bool = False
+    ):
+        """Update metadata files for success demos."""
+        if verbose:
+            print("\n--- Updating Metadata Files ---")
+
+        # Update episodes.jsonl
+        new_episodes = []
+        for new_idx, episode in enumerate(success_episodes):
+            new_episode = episode.copy()
+            new_episode["episode_index"] = new_idx
+            new_episodes.append(new_episode)
+
+        self.write_jsonl(new_episodes, output_dir / "meta" / "episodes.jsonl")
+
+        # Copy other metadata files
+        meta_files = ["info.json", "modality.json", "tasks.jsonl"]
+        for meta_file in meta_files:
+            src_file = dataset_dir / "meta" / meta_file
+            dst_file = output_dir / "meta" / meta_file
+
+            if src_file.exists():
+                shutil.copy2(src_file, dst_file)
+                if verbose:
+                    print(f"  Copied {meta_file}")
+            else:
+                if verbose:
+                    print(f"  ⚠️  {meta_file} not found")
+
+        # Update info.json with new statistics
+        info_file = output_dir / "meta" / "info.json"
+        if info_file.exists():
+            with info_file.open("r") as f:
+                info_data = json.load(f)
+
+            # Update episode count
+            info_data["total_episodes"] = len(success_episodes)
+
+            # Calculate total frames
+            total_frames = sum(episode.get("length", 0) for episode in success_episodes)
+            info_data["total_frames"] = total_frames
+
+            with info_file.open("w") as f:
+                json.dump(info_data, f, indent=4)
+
+            if verbose:
+                print(f"  Updated info.json: {len(success_episodes)} episodes, {total_frames} frames")
+
 
 """
 Lerobot Dataset Tool - CLI Interface
@@ -893,6 +1123,16 @@ Example usage:
       --dataset_dir /path/to/dataset_to_modify \\
       --episode_id 32 \\
       --verbose
+
+  python dataset_tool_cli.py success_demos \\
+      --dataset_dir /path/to/source_dataset \\
+      --output_dir /path/to/success_dataset \\
+      --max_length 500 \\
+      --verbose
+
+  python dataset_tool_cli.py split \\
+      --dataset_dir /path/to/dataset_to_split \\
+      --output_dir /path/to/split_datasets
 """
 
 
@@ -981,6 +1221,41 @@ def main_cli():
     )
     parser_split.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output.")
 
+    # --- Success Demos command ---
+    parser_success = subparsers.add_parser(
+        "success_demos",
+        help="Extract only successful episodes from a dataset.",
+        description=(
+            "Extracts only successful episodes from a dataset based on episode length or reward sum.\n"
+            "Success criteria: episode length <= max_length OR reward sum > 0.\n"
+            "Creates a new dataset with only the successful episodes, renumbered sequentially."
+        ),
+    )
+    parser_success.add_argument(
+        "--dataset_dir",
+        type=Path,
+        required=True,
+        help="Path to the source dataset to extract success demos from.",
+    )
+    parser_success.add_argument(
+        "--output_dir",
+        type=Path,
+        required=True,
+        help="Directory where the success-only dataset will be saved.",
+    )
+    parser_success.add_argument(
+        "--env_name",
+        type=str,
+        help="Environment name to get the maximum episode length.",
+    )
+    parser_success.add_argument(
+        "--chunk_name",
+        type=str,
+        default=CHUNK_NAME_DEFAULT,
+        help=f"Name of the data chunk to process (default: {CHUNK_NAME_DEFAULT}).",
+    )
+    parser_success.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output.")
+
     args = parser.parse_args()
     manager = DatasetManager()
 
@@ -990,6 +1265,22 @@ def main_cli():
         manager.delete_episode_from_dataset(args.dataset_dir, args.episode_id, args.chunk_name, args.verbose)
     elif args.command == "split":
         manager.split_dataset(args.dataset_dir, args.output_dir, args.verbose)
+    elif args.command == "success_demos":
+        from robocasa.utils.dataset_registry import MULTI_STAGE_TASK_DATASETS, SINGLE_STAGE_TASK_DATASETS
+
+        def get_env_horizon(env_name):
+            if env_name in SINGLE_STAGE_TASK_DATASETS:
+                ds_config = SINGLE_STAGE_TASK_DATASETS[env_name]
+            elif env_name in MULTI_STAGE_TASK_DATASETS:
+                ds_config = MULTI_STAGE_TASK_DATASETS[env_name]
+            else:
+                raise ValueError(f"Environment {env_name} not found in dataset registry")
+            return ds_config["horizon"]
+
+        max_length = get_env_horizon(args.env_name)
+        manager.extract_success_demos(
+            args.env_name, args.dataset_dir, args.output_dir, max_length, args.chunk_name, args.verbose
+        )
     else:
         parser.print_help()  # Should not be reached due to `required=True` on subparsers
 
