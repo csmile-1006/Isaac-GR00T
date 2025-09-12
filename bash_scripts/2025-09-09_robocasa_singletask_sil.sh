@@ -11,9 +11,10 @@
 
 TASK_NAME=$1
 NUM_DEMOS=$2
-STEPS=$3
-NUM_GPUS=${4:-2}
-BATCH_SIZE=${5:-16}
+NUM_ROLLOUTS=$3
+STEPS=$4
+NUM_GPUS=${5:-2}
+BATCH_SIZE=${6:-16}
 TOTAL_BATCH_SIZE=$((NUM_GPUS * BATCH_SIZE))
 
 BASE_PATH=/home/changyeon
@@ -22,10 +23,11 @@ source ${BASE_PATH}/miniconda3/bin/activate gr00t
 cd ${BASE_PATH}/workspace/Isaac-GR00T
 
 SCRIPT="
+    WANDB_PROJECT=gr00t-sil-finetune \
     python scripts/gr00t_finetune.py \
     --base_model_path ${CKPT_PATH} \
     --dataset-path "${BASE_PATH}/data/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/" \
-                   "${BASE_PATH}/gr00tn15_robocasa/rollout_demos/${TASK_NAME}_num${NUM_DEMOS}/lerobot/" \
+                   "${BASE_PATH}/gr00tn15_robocasa/rollout_demos/${TASK_NAME}_num${NUM_ROLLOUTS}/lerobot/" \
     --num-gpus ${NUM_GPUS} \
     --output-dir "${BASE_PATH}/ckpts/${TASK_NAME}/SIL_bs${TOTAL_BATCH_SIZE}_step${STEPS}_demo${NUM_DEMOS}" \
     --max-steps "${STEPS}" \

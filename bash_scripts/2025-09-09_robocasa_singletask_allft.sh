@@ -23,6 +23,7 @@ source ${BASE_PATH}/miniconda3/bin/activate gr00t
 cd ${BASE_PATH}/workspace/Isaac-GR00T
 
 SCRIPT="
+    WANDB_PROJECT=gr00t-all-ft-finetune \
     python scripts/gr00t_finetune.py \
     --base_model_path ${CKPT_PATH} \
     --dataset-path "${BASE_PATH}/data/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/" \
