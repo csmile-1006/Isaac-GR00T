@@ -28,6 +28,8 @@ from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1_5
+from gr00t.model.gr00t_n1_fql import GR00T_N1_5_FQL
+from gr00t.model.gr00t_n1_ours import GR00T_N1_5_Ours
 
 COMPUTE_DTYPE = torch.bfloat16
 
@@ -88,9 +90,7 @@ class Gr00tPolicy(BasePolicy):
             model_path = snapshot_download(model_path, repo_type="model")
             # HFValidationError, RepositoryNotFoundError
         except (HFValidationError, RepositoryNotFoundError):
-            print(
-                f"Model not found or avail in the huggingface hub. Loading from local path: {model_path}"
-            )
+            print(f"Model not found or avail in the huggingface hub. Loading from local path: {model_path}")
 
         self._modality_config = modality_config
         self._modality_transform = modality_transform
@@ -112,9 +112,7 @@ class Gr00tPolicy(BasePolicy):
         self._load_horizons()
 
         if denoising_steps is not None:
-            if hasattr(self.model, "action_head") and hasattr(
-                self.model.action_head, "num_inference_timesteps"
-            ):
+            if hasattr(self.model, "action_head") and hasattr(self.model.action_head, "num_inference_timesteps"):
                 self.model.action_head.num_inference_timesteps = denoising_steps
                 print(f"Set action denoising steps to {denoising_steps}")
 
@@ -319,14 +317,96 @@ class Gr00tPolicy(BasePolicy):
         assert delta_indices[-1] == 0, f"{delta_indices=}"
         if len(delta_indices) > 1:
             # The step is consistent
-            assert np.all(
-                np.diff(delta_indices) == delta_indices[1] - delta_indices[0]
-            ), f"{delta_indices=}"
+            assert np.all(np.diff(delta_indices) == delta_indices[1] - delta_indices[0]), f"{delta_indices=}"
             # And the step is positive
             assert (delta_indices[1] - delta_indices[0]) > 0, f"{delta_indices=}"
 
 
 #######################################################################################################
+
+
+class Gr00TFQLPolicy(Gr00tPolicy):
+    def _load_model(self, model_path):
+        model = GR00T_N1_5_FQL.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        model.eval()
+        model.to(device=self.device)  # type: ignore
+        self.model = model
+
+        # Update action_horizon to match modality config
+        # Get the expected action horizon from the modality config
+        expected_action_horizon = len(self._modality_config["action"].delta_indices)
+
+        if expected_action_horizon != model.action_head.config.rl_config["critic_action_horizon"]:
+            print(
+                f"Policy: Recreating action head with action_horizon {expected_action_horizon} (was {model.action_head.config.rl_config['critic_action_horizon']})"
+            )
+
+            # Update the action head config
+            new_action_head_config = model.action_head.config
+            new_action_head_config.rl_config["critic_action_horizon"] = expected_action_horizon
+
+            # Import the FlowmatchingActionHead class
+            from gr00t.model.action_head.fql_action_head import (
+                FQLActionHead,
+            )
+
+            # Create new action head with updated config
+            new_action_head = FQLActionHead(new_action_head_config)
+
+            # Copy the weights from the old action head to the new one
+            new_action_head.load_state_dict(model.action_head.state_dict(), strict=False)
+
+            # Replace the action head
+            model.action_head = new_action_head
+
+            # Update model config AND the action_head_cfg dictionary that gets saved
+            model.config.action_horizon = expected_action_horizon
+            model.action_horizon = expected_action_horizon
+            model.config.action_head_cfg["action_horizon"] = expected_action_horizon
+
+        self.model = model
+
+
+class Gr00TOursPolicy(Gr00tPolicy):
+    def _load_model(self, model_path):
+        model = GR00T_N1_5_Ours.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        model.eval()
+        model.to(device=self.device)  # type: ignore
+        self.model = model
+
+        # Update action_horizon to match modality config
+        # Get the expected action horizon from the modality config
+        expected_action_horizon = len(self._modality_config["action"].delta_indices)
+
+        if expected_action_horizon != model.action_head.config.rl_config["critic_action_horizon"]:
+            print(
+                f"Policy: Recreating action head with action_horizon {expected_action_horizon} (was {model.action_head.config.rl_config['critic_action_horizon']})"
+            )
+
+            # Update the action head config
+            new_action_head_config = model.action_head.config
+            new_action_head_config.rl_config["critic_action_horizon"] = expected_action_horizon
+
+            # Import the FlowmatchingActionHead class
+            from gr00t.model.action_head.our_action_head import (
+                OurActionHead,
+            )
+
+            # Create new action head with updated config
+            new_action_head = OurActionHead(new_action_head_config)
+
+            # Copy the weights from the old action head to the new one
+            new_action_head.load_state_dict(model.action_head.state_dict(), strict=False)
+
+            # Replace the action head
+            model.action_head = new_action_head
+
+            # Update model config AND the action_head_cfg dictionary that gets saved
+            model.config.action_horizon = expected_action_horizon
+            model.action_horizon = expected_action_horizon
+            model.config.action_head_cfg["action_horizon"] = expected_action_horizon
+
+        self.model = model
 
 
 # Helper functions

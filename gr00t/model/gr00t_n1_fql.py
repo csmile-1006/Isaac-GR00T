@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -206,7 +206,12 @@ class GR00T_N1_5_FQL(PreTrainedModel):
 
     @classmethod
     def from_pretrained(
-        cls, pretrained_model_name_or_path: str, critic_cfg: dict, rl_cfg: dict, from_gr00t_n1_5: bool = False, **kwargs
+        cls,
+        pretrained_model_name_or_path: str,
+        critic_cfg: Optional[dict] = None,
+        rl_cfg: Optional[dict] = None,
+        from_gr00t_n1_5: bool = False,
+        **kwargs,
     ):
         tune_visual = kwargs.pop("tune_visual", True)
         tune_llm = kwargs.pop("tune_llm", False)

@@ -35,7 +35,7 @@ from tqdm import tqdm
 from gr00t.eval.robot import RobotInferenceClient
 from gr00t.eval.wrappers.robocasa_wrapper import load_robocasa_gym_env
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
-from gr00t.model.policy import BasePolicy, Gr00tPolicy
+from gr00t.model.policy import BasePolicy, Gr00tPolicy, Gr00TFQLPolicy, Gr00TOursPolicy
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
@@ -230,6 +230,13 @@ if __name__ == "__main__":
         help="[Optional] Path to the model checkpoint directory, this will disable client server mode.",
     )
     parser.add_argument(
+        "--model_type",
+        type=str,
+        default="original",
+        choices=["fql", "ours", "original"],
+        help="Type of model to use.",
+    )
+    parser.add_argument(
         "--denoising_steps",
         type=int,
         help="Number of denoising steps if model_path is provided",
@@ -344,13 +351,26 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     data_config = DATA_CONFIG_MAP[args.data_config]
+    if args.model_type in ["fql", "ours"]:
+        data_config = data_config(AS=args.action_horizon)
+
     if args.model_path is not None:
         import torch
 
         modality_config = data_config.modality_config()
         modality_transform = data_config.transform()
 
-        policy: BasePolicy = Gr00tPolicy(
+        if args.model_type == "fql":
+            policy = Gr00TFQLPolicy(
+                model_path=args.model_path,
+                modality_config=modality_config,
+                modality_transform=modality_transform,
+                embodiment_tag=args.embodiment_tag,
+                denoising_steps=args.denoising_steps,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+        elif args.model_type == "ours":
+            policy = Gr00TOursPolicy(
             model_path=args.model_path,
             modality_config=modality_config,
             modality_transform=modality_transform,
@@ -358,6 +378,17 @@ if __name__ == "__main__":
             denoising_steps=args.denoising_steps,
             device="cuda" if torch.cuda.is_available() else "cpu",
         )
+        elif args.model_type == "original":
+            policy = Gr00tPolicy(
+                model_path=args.model_path,
+                modality_config=modality_config,
+                modality_transform=modality_transform,
+                embodiment_tag=args.embodiment_tag,
+                denoising_steps=args.denoising_steps,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+        else:
+            raise ValueError(f"Invalid model type: {args.model_type}")
     else:
         policy: BasePolicy = RobotInferenceClient(host=args.host, port=args.port)
 

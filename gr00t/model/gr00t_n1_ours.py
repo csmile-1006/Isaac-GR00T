@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -209,9 +209,9 @@ class GR00T_N1_5_Ours(PreTrainedModel):
     def from_pretrained(
         cls,
         pretrained_model_name_or_path: str,
-        value_cfg: dict,
-        critic_cfg: dict,
-        rl_cfg: dict,
+        value_cfg: Optional[dict] = None,
+        critic_cfg: Optional[dict] = None,
+        rl_cfg: Optional[dict] = None,
         from_gr00t_n1_5: bool = False,
         **kwargs,
     ):
