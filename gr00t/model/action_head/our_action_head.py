@@ -568,8 +568,11 @@ class OurActionHead(nn.Module):
         critic_action_features = self.critic_action_encoder(
             onestep_actions[:, : self.critic_action_horizon], timestep_tensor, embodiment_id
         )
-        q1, q2 = self.critic(vl_embed_features, state_features, critic_action_features)
+        q1_logits, q2_logits = self.critic(vl_embed_features, state_features, critic_action_features)
+        q1_probs, q2_probs = torch.softmax(q1_logits, dim=-1), torch.softmax(q2_logits, dim=-1)
+        q1, q2 = self.hlg.transform_from_probs(q1_probs), self.hlg.transform_from_probs(q2_probs)
         q = (q1 + q2) / 2
+
         q_loss = -q.mean()
         if self.rl_config.normalize_q:
             lam = (1 / torch.abs(q).mean()).detach()
