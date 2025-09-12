@@ -168,10 +168,10 @@ class ArgsConfig:
     q_agg: str = "min"
     """Aggregation function for critic loss."""
 
-    discount1: float = 0.99
+    discount1: float = 0.995
     """Discount factor for inner MDP."""
 
-    discount2: float = 0.99
+    discount2: float = 0.995
     """Discount factor for outer MDP."""
 
     negative_reward: bool = True
