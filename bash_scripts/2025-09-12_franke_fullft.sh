@@ -29,7 +29,8 @@ script="
         --max-steps ${STEPS} \
         --data-config droid_panda_wrist_gripper \
         --batch-size ${BATCH_SIZE} \
-        --save-steps 5000
+        --save-steps 5000 \
+        --run-name FULLFT_bs${TOTAL_BATCH_SIZE}_step${STEPS}_demo${NUM_DEMOS}
 "
 
 echo $script
