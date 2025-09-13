@@ -18,6 +18,7 @@ import csv
 import datetime
 import json
 import os
+import random
 import time
 import warnings
 from glob import glob
@@ -35,9 +36,17 @@ from tqdm import tqdm
 from gr00t.eval.robot import RobotInferenceClient
 from gr00t.eval.wrappers.robocasa_wrapper import load_robocasa_gym_env
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
-from gr00t.model.policy import BasePolicy, Gr00tPolicy, Gr00TFQLPolicy, Gr00TOursPolicy
+from gr00t.model.policy import BasePolicy, Gr00TFQLPolicy, Gr00TOursPolicy, Gr00tPolicy
 
 warnings.simplefilter("ignore", category=FutureWarning)
+
+
+def control_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
 
 
 def add_to(dict_of_lists, single_dict):
@@ -349,6 +358,7 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+    control_seed(args.seed)
 
     data_config = DATA_CONFIG_MAP[args.data_config]
     if args.model_type in ["fql", "ours"]:
@@ -371,13 +381,13 @@ if __name__ == "__main__":
             )
         elif args.model_type == "ours":
             policy = Gr00TOursPolicy(
-            model_path=args.model_path,
-            modality_config=modality_config,
-            modality_transform=modality_transform,
-            embodiment_tag=args.embodiment_tag,
-            denoising_steps=args.denoising_steps,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-        )
+                model_path=args.model_path,
+                modality_config=modality_config,
+                modality_transform=modality_transform,
+                embodiment_tag=args.embodiment_tag,
+                denoising_steps=args.denoising_steps,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
         elif args.model_type == "original":
             policy = Gr00tPolicy(
                 model_path=args.model_path,
