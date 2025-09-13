@@ -3,9 +3,10 @@ NUM_DEMOS=$2
 NUM_ROLLOUTS=$3
 STEPS=$4
 CRITIC_ACTION_HORIZON=$5
-DISCOUNT=${6:-0.995}
-NUM_GPUS=${7:-2}
-BATCH_SIZE=${8:-16}
+ALPHA=${6:-3.0}
+DISCOUNT=${7:-0.995}
+NUM_GPUS=${8:-2}
+BATCH_SIZE=${9:-16}
 
 BASE_PATH=/home/changyeon/
 CKPT_PATH=${BASE_PATH}/ckpts/gr00tn15_rbcs100_bs32_60k/
@@ -26,6 +27,8 @@ python scripts/gr00t_ours_finetune.py \
     --run-name ${RUN_NAME} \
     --critic-action-horizon ${CRITIC_ACTION_HORIZON} \
     --discount1 ${DISCOUNT} \
-    --discount2 ${DISCOUNT}
+    --discount2 ${DISCOUNT} \
+    --alpha ${ALPHA}
+
     # --lora_rank 64 \
     # --lora_alpha 128

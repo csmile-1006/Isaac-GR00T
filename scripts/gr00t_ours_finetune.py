@@ -190,7 +190,7 @@ class ArgsConfig:
     tau: float = 0.005
     """Tau for polyak update."""
 
-    sigma: float = 0.1
+    sigma: float = 0.75
     """Sigma for the critic."""
 
     num_atoms: int = 101
