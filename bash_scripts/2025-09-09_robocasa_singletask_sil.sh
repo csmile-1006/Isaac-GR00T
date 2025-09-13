@@ -18,7 +18,7 @@ BATCH_SIZE=${6:-16}
 TOTAL_BATCH_SIZE=$((NUM_GPUS * BATCH_SIZE))
 
 BASE_PATH=/home/changyeon
-CKPT_PATH=${BASE_PATH}/ckpts/gr00tn15_rbcs_bs32_60k
+CKPT_PATH=${BASE_PATH}/ckpts/gr00tn15_rbcs100_bs32_60k
 source ${BASE_PATH}/miniconda3/bin/activate gr00t
 cd ${BASE_PATH}/workspace/Isaac-GR00T
 
