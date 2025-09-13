@@ -830,7 +830,7 @@ class OurActionHead(nn.Module):
 
         # Run denoising steps.
         timesteps_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
-        action_features = self.action_encoder(actions, timesteps_tensor, embodiment_id)
+        action_features = self.onestep_action_encoder(actions, timesteps_tensor, embodiment_id)
         # Maybe add position embedding.
         if self.config.add_pos_embed:
             pos_ids = torch.arange(action_features.shape[1], dtype=torch.long, device=device)
@@ -848,7 +848,7 @@ class OurActionHead(nn.Module):
             encoder_hidden_states=vl_embs,
             timestep=timesteps_tensor,
         )
-        pred = self.action_decoder(model_output, embodiment_id)
+        pred = self.onestep_action_decoder(model_output, embodiment_id)
 
         pred_velocity = pred[:, : self.critic_action_horizon]
 
