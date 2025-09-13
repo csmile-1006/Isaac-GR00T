@@ -29,7 +29,7 @@ SCRIPT="
     --dataset-path "${BASE_PATH}/data/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/" \
                    "${BASE_PATH}/gr00tn15_robocasa/rollout_demos/${TASK_NAME}_num${NUM_ROLLOUTS}/lerobot/" \
     --num-gpus ${NUM_GPUS} \
-    --output-dir "${BASE_PATH}/ckpts/${TASK_NAME}/SIL_bs${TOTAL_BATCH_SIZE}_step${STEPS}_demo${NUM_DEMOS}" \
+    --output-dir "${BASE_PATH}/ckpts/${TASK_NAME}/SIL_bs${TOTAL_BATCH_SIZE}_step${STEPS}_demo${NUM_DEMOS}_rolldemo${NUM_ROLLOUTS}" \
     --max-steps "${STEPS}" \
     --data-config single_panda_gripper \
     --batch-size ${BATCH_SIZE} \
