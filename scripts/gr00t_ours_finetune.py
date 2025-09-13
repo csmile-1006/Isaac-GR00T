@@ -26,6 +26,7 @@ import torch
 import tyro
 from torch.optim.lr_scheduler import LambdaLR
 from transformers import TrainingArguments
+import wandb
 
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
@@ -444,6 +445,12 @@ if __name__ == "__main__":
     print(f"Using {config.num_gpus} GPUs")
 
     os.environ["WANDB_PROJECT"] = "gr00t-ours-finetune"
+    wandb.init(
+        project=os.environ["WANDB_PROJECT"],
+        name=config.run_name,
+        config=vars(config),
+        settings=wandb.Settings(_disable_stats=True),
+    )
 
     if config.num_gpus == 1:
         # Single GPU mode - set CUDA_VISIBLE_DEVICES=0
