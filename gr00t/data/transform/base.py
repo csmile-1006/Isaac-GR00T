@@ -18,7 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from gr00t.data.schema import DatasetMetadata
+from gr00t.data.schema import DatasetMetadata, RLDatasetMetadata
 
 
 class ModalityTransform(BaseModel, ABC):
@@ -27,25 +27,23 @@ class ModalityTransform(BaseModel, ABC):
     """
 
     apply_to: list[str] = Field(..., description="The keys to apply the transform to.")
-    training: bool = Field(
-        default=True, description="Whether to apply the transform in training mode."
-    )
-    _dataset_metadata: DatasetMetadata | None = PrivateAttr(default=None)
+    training: bool = Field(default=True, description="Whether to apply the transform in training mode.")
+    _dataset_metadata: DatasetMetadata | RLDatasetMetadata | None = PrivateAttr(default=None)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @property
-    def dataset_metadata(self) -> DatasetMetadata:
-        assert (
-            self._dataset_metadata is not None
-        ), "Dataset metadata is not set. Please call set_metadata() before calling apply()."
+    def dataset_metadata(self) -> DatasetMetadata | RLDatasetMetadata:
+        assert self._dataset_metadata is not None, (
+            "Dataset metadata is not set. Please call set_metadata() before calling apply()."
+        )
         return self._dataset_metadata
 
     @dataset_metadata.setter
-    def dataset_metadata(self, value: DatasetMetadata):
+    def dataset_metadata(self, value: DatasetMetadata | RLDatasetMetadata):
         self._dataset_metadata = value
 
-    def set_metadata(self, dataset_metadata: DatasetMetadata):
+    def set_metadata(self, dataset_metadata: DatasetMetadata | RLDatasetMetadata):
         """
         Set the dataset metadata. This is useful for transforms that need to know the dataset metadata, e.g. to normalize actions.
         Subclasses can override this method if they need to do something more complex.
@@ -94,16 +92,12 @@ class ComposedModalityTransform(ModalityTransform):
     """Compose multiple modality transforms."""
 
     transforms: list[ModalityTransform] = Field(..., description="The transforms to compose.")
-    apply_to: list[str] = Field(
-        default_factory=list, description="Will be ignored for composed transforms."
-    )
-    training: bool = Field(
-        default=True, description="Whether to apply the transform in training mode."
-    )
+    apply_to: list[str] = Field(default_factory=list, description="Will be ignored for composed transforms.")
+    training: bool = Field(default=True, description="Whether to apply the transform in training mode.")
 
     model_config = ConfigDict(arbitrary_types_allowed=True, from_attributes=True)
 
-    def set_metadata(self, dataset_metadata: DatasetMetadata):
+    def set_metadata(self, dataset_metadata: DatasetMetadata | RLDatasetMetadata):
         for transform in self.transforms:
             transform.set_metadata(dataset_metadata)
 

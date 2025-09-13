@@ -31,6 +31,7 @@ import robocasa
 import robosuite
 from robocasa.utils.robomimic.robomimic_dataset_utils import convert_to_robomimic_format
 from robosuite.controllers import load_composite_controller_config
+import torch
 from tqdm import tqdm
 
 from gr00t.eval.robot import RobotInferenceClient

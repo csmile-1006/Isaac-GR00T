@@ -85,6 +85,7 @@ class GR00T_N1_5_FQL(PreTrainedModel):
         self.action_head = FQLActionHead(action_head_cfg)
 
         self.action_horizon = config.action_horizon
+        self.critic_action_horizon = action_head_cfg.rl_config["critic_action_horizon"]
         self.action_dim = config.action_dim
         self.compute_dtype = config.compute_dtype
 
@@ -151,7 +152,7 @@ class GR00T_N1_5_FQL(PreTrainedModel):
             or (
                 ACTION_KEY in action_head_outputs
                 and action_head_outputs[ACTION_KEY].shape[1]
-                == 1  # FQL must output single action which is based on policy gradient
+                == self.critic_action_horizon  # FQL must output single action which is based on policy gradient
                 and action_head_outputs[ACTION_KEY].shape[2] == self.action_dim
             )
         )

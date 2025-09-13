@@ -25,7 +25,7 @@ from huggingface_hub.errors import HFValidationError, RepositoryNotFoundError
 
 from gr00t.data.dataset import ModalityConfig
 from gr00t.data.embodiment_tags import EmbodimentTag
-from gr00t.data.schema import DatasetMetadata
+from gr00t.data.schema import DatasetMetadata, RLDatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 from gr00t.model.gr00t_n1_fql import GR00T_N1_5_FQL
@@ -332,39 +332,26 @@ class Gr00TFQLPolicy(Gr00tPolicy):
         model.to(device=self.device)  # type: ignore
         self.model = model
 
-        # Update action_horizon to match modality config
-        # Get the expected action horizon from the modality config
-        expected_action_horizon = len(self._modality_config["action"].delta_indices)
 
-        if expected_action_horizon != model.action_head.config.rl_config["critic_action_horizon"]:
-            print(
-                f"Policy: Recreating action head with action_horizon {expected_action_horizon} (was {model.action_head.config.rl_config['critic_action_horizon']})"
+    def _load_metadata(self, exp_cfg_dir: Path):
+        """Load the transforms for the model."""
+        # Load metadata for normalization stats
+        metadata_path = exp_cfg_dir / "metadata.json"
+        with open(metadata_path, "r") as f:
+            metadatas = json.load(f)
+
+        # Get metadata for the specific embodiment
+        metadata_dict = metadatas.get(self.embodiment_tag.value)
+        if metadata_dict is None:
+            raise ValueError(
+                f"No metadata found for embodiment tag: {self.embodiment_tag.value}",
+                f"make sure the metadata.json file is present at {metadata_path}",
             )
 
-            # Update the action head config
-            new_action_head_config = model.action_head.config
-            new_action_head_config.rl_config["critic_action_horizon"] = expected_action_horizon
+        metadata = RLDatasetMetadata.model_validate(metadata_dict)
 
-            # Import the FlowmatchingActionHead class
-            from gr00t.model.action_head.fql_action_head import (
-                FQLActionHead,
-            )
-
-            # Create new action head with updated config
-            new_action_head = FQLActionHead(new_action_head_config)
-
-            # Copy the weights from the old action head to the new one
-            new_action_head.load_state_dict(model.action_head.state_dict(), strict=False)
-
-            # Replace the action head
-            model.action_head = new_action_head
-
-            # Update model config AND the action_head_cfg dictionary that gets saved
-            model.config.action_horizon = expected_action_horizon
-            model.action_horizon = expected_action_horizon
-            model.config.action_head_cfg["action_horizon"] = expected_action_horizon
-
-        self.model = model
+        self._modality_transform.set_metadata(metadata)
+        self.metadata = metadata
 
 
 class Gr00TOursPolicy(Gr00tPolicy):
@@ -374,39 +361,26 @@ class Gr00TOursPolicy(Gr00tPolicy):
         model.to(device=self.device)  # type: ignore
         self.model = model
 
-        # Update action_horizon to match modality config
-        # Get the expected action horizon from the modality config
-        expected_action_horizon = len(self._modality_config["action"].delta_indices)
 
-        if expected_action_horizon != model.action_head.config.rl_config["critic_action_horizon"]:
-            print(
-                f"Policy: Recreating action head with action_horizon {expected_action_horizon} (was {model.action_head.config.rl_config['critic_action_horizon']})"
+    def _load_metadata(self, exp_cfg_dir: Path):
+        """Load the transforms for the model."""
+        # Load metadata for normalization stats
+        metadata_path = exp_cfg_dir / "metadata.json"
+        with open(metadata_path, "r") as f:
+            metadatas = json.load(f)
+
+        # Get metadata for the specific embodiment
+        metadata_dict = metadatas.get(self.embodiment_tag.value)
+        if metadata_dict is None:
+            raise ValueError(
+                f"No metadata found for embodiment tag: {self.embodiment_tag.value}",
+                f"make sure the metadata.json file is present at {metadata_path}",
             )
 
-            # Update the action head config
-            new_action_head_config = model.action_head.config
-            new_action_head_config.rl_config["critic_action_horizon"] = expected_action_horizon
+        metadata = RLDatasetMetadata.model_validate(metadata_dict)
 
-            # Import the FlowmatchingActionHead class
-            from gr00t.model.action_head.our_action_head import (
-                OurActionHead,
-            )
-
-            # Create new action head with updated config
-            new_action_head = OurActionHead(new_action_head_config)
-
-            # Copy the weights from the old action head to the new one
-            new_action_head.load_state_dict(model.action_head.state_dict(), strict=False)
-
-            # Replace the action head
-            model.action_head = new_action_head
-
-            # Update model config AND the action_head_cfg dictionary that gets saved
-            model.config.action_horizon = expected_action_horizon
-            model.action_horizon = expected_action_horizon
-            model.config.action_head_cfg["action_horizon"] = expected_action_horizon
-
-        self.model = model
+        self._modality_transform.set_metadata(metadata)
+        self.metadata = metadata
 
 
 # Helper functions

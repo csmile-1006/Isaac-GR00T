@@ -850,9 +850,10 @@ class OurActionHead(nn.Module):
         )
         pred = self.onestep_action_decoder(model_output, embodiment_id)
 
-        pred_velocity = pred[:, : self.critic_action_horizon]
+        pred_velocity = pred[:, -self.action_horizon :]
 
         actions = actions + pred_velocity
+        actions = actions[:, :self.critic_action_horizon]
         return BatchFeature(data={"action_pred": actions})
 
     @property
