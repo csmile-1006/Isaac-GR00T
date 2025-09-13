@@ -14,6 +14,7 @@ CKPT_PATH=$2
 NUM_ENVS=$3
 NUM_ROLLOUTS=$4
 SERVER=${5:-"alin_slurm"}
+MODEL_TYPE=${6:-"original"}
 
 if [ "$SERVER" == "rlwrld" ]; then
     ROOT_PATH=/virtual_lab/sjw_alinlab/changyeon/
@@ -31,6 +32,7 @@ script="
     python scripts/eval_policy_robocasa.py \
     --host localhost \
     --port 5555 \
+    --model_type ${MODEL_TYPE} \
     --data_config single_panda_gripper \
     --action_horizon ${ACTION_HORIZON} \
     --embodiment_tag new_embodiment \

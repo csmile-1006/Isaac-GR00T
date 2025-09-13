@@ -448,6 +448,11 @@ if __name__ == "__main__":
     # Grab reference to controller config and convert it to json-encoded string
     env_info = json.dumps(config)
 
+    if args.model_path is not None and args.model_type in ["fql", "ours"]:
+        assert args.action_horizon == policy.model.critic_action_horizon, (
+            f"Action horizon mismatch: {args.action_horizon} != {policy.model.critic_action_horizon}"
+        )
+
     env = load_robocasa_gym_env(
         args.env_name,
         n_envs=args.n_envs,
