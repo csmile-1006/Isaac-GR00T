@@ -26,7 +26,8 @@ source ${ROOT_PATH}/miniconda3/bin/activate gr00t
 cd ${ROOT_PATH}/workspace/Isaac-GR00T
 
 CKPT_FOLDER=$(basename "$(dirname "${CKPT_PATH}")")
-OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/${TASK_NAME}/${CKPT_FOLDER}_eval_n${NUM_ROLLOUTS}
+CKPT_STEP=$(basename "${CKPT_PATH}")
+OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/${TASK_NAME}/${CKPT_FOLDER}/${CKPT_STEP}_eval_n${NUM_ROLLOUTS}
 script="
     MUJOCO_GL=egl \
     python scripts/eval_policy_robocasa.py \
