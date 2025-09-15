@@ -51,6 +51,7 @@ class RLConfig(PretrainedConfig):
     negative_reward: bool = field(default=True, metadata={"help": "Whether the reward is negative."})
     nstep: int = field(default=1, metadata={"help": "Number of steps for reward."})
     normalize_q: bool = field(default=True, metadata={"help": "Whether to normalize the Q-value."})
+    alpha_q: float = field(default=1.0, metadata={"help": "Alpha for Q-value loss."})
     alpha: float = field(default=3.0, metadata={"help": "Alpha for actor loss."})
     tau: float = field(default=0.005, metadata={"help": "Tau for polyak update."})
 
@@ -224,6 +225,10 @@ class OurActionHead(nn.Module):
         self.set_trainable_parameters(
             config.tune_projector, config.tune_diffusion_model, config.tune_value, config.tune_critic
         )
+
+        print(f"rl_config in action head: {self.rl_config}")
+        print(f"critic_config in action head: {self.critic_config}")
+        print(f"value_config in action head: {self.value_config}")
 
     def set_trainable_parameters(
         self, tune_projector: bool, tune_diffusion_model: bool, tune_value: bool, tune_critic: bool
@@ -578,7 +583,7 @@ class OurActionHead(nn.Module):
             lam = (1 / torch.abs(q).mean()).detach()
             q_loss = lam * q_loss
 
-        actor_loss = q_loss + self.rl_config.alpha * distillation_loss
+        actor_loss = self.rl_config.alpha_q * q_loss + self.rl_config.alpha * distillation_loss
         metrics = {
             "q_loss": q_loss.detach(),
             "q_mean": q.detach().mean(),

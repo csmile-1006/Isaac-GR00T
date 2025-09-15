@@ -184,6 +184,9 @@ class ArgsConfig:
     normalize_q: bool = True
     """Whether to normalize the Q-value."""
 
+    alpha_q: float = 1.0
+    """Alpha for Q-value loss."""
+
     alpha: float = 3.0
     """Alpha for actor loss."""
 
@@ -279,6 +282,7 @@ def main(config: ArgsConfig):
         negative_reward=config.negative_reward,
         nstep=config.nstep,
         normalize_q=config.normalize_q,
+        alpha_q=config.alpha_q,
         alpha=config.alpha,
         tau=config.tau,
         sigma=config.sigma,
