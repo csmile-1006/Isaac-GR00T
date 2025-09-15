@@ -144,7 +144,7 @@ class DualBrainTrainer(transformers.Trainer):
         return super().train(resume_from_checkpoint, trial, ignore_keys_for_eval, **kwargs)
 
 
-class DualBrainFQLTrainer(DualBrainTrainer):
+class DualBrainRLTrainer(DualBrainTrainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         outputs = model(inputs)
         loss = outputs["loss"]

@@ -37,14 +37,7 @@ from tqdm import tqdm
 from gr00t.eval.robot import RobotInferenceClient
 from gr00t.eval.wrappers.robocasa_wrapper import load_robocasa_gym_env
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
-from gr00t.model.policy import (
-    BasePolicy,
-    Gr00TFQLPolicy,
-    Gr00TOursAWRPolicy,
-    Gr00TOursBoNPolicy,
-    Gr00TOursPolicy,
-    Gr00tPolicy,
-)
+from gr00t.model.policy import BasePolicy, Gr00tOursDualBoNPolicy
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
@@ -241,16 +234,22 @@ if __name__ == "__main__":
     )
     ## When using a model instead of client-server mode.
     parser.add_argument(
-        "--model_path",
+        "--actor_model_path",
         type=str,
         default=None,
         help="[Optional] Path to the model checkpoint directory, this will disable client server mode.",
     )
     parser.add_argument(
+        "--critic_model_path",
+        type=str,
+        required=True,
+        help="Path to the critic model checkpoint directory.",
+    )
+    parser.add_argument(
         "--model_type",
         type=str,
-        default="original",
-        choices=["fql", "ours", "original", "ours_bon", "ours_awr"],
+        default="ours_dual_bon",
+        choices=["ours_dual_bon"],
         help="Type of model to use.",
     )
     parser.add_argument(
@@ -258,6 +257,12 @@ if __name__ == "__main__":
         type=int,
         help="Number of denoising steps if model_path is provided",
         default=4,
+    )
+    parser.add_argument(
+        "--num_samples",
+        type=int,
+        default=4,
+        help="Number of samples for BoN sampling.",
     )
 
     # robocasa env and evaluation parameters
@@ -369,62 +374,26 @@ if __name__ == "__main__":
     control_seed(args.seed)
 
     data_config = DATA_CONFIG_MAP[args.data_config]
-    if args.model_type in ["fql", "ours", "ours_bon", "ours_awr"]:
+    if args.model_type in ["ours_dual_bon"]:
         data_config = data_config(AS=args.action_horizon)
 
-    if args.model_path is not None:
+    if args.critic_model_path is not None:
         import torch
 
         modality_config = data_config.modality_config()
         modality_transform = data_config.transform()
+        assert args.model_type == "ours_dual_bon", "Only our dual BoN policy is supported for now"
 
-        if args.model_type == "fql":
-            policy = Gr00TFQLPolicy(
-                model_path=args.model_path,
-                modality_config=modality_config,
-                modality_transform=modality_transform,
-                embodiment_tag=args.embodiment_tag,
-                denoising_steps=args.denoising_steps,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-        elif args.model_type == "ours":
-            policy = Gr00TOursPolicy(
-                model_path=args.model_path,
-                modality_config=modality_config,
-                modality_transform=modality_transform,
-                embodiment_tag=args.embodiment_tag,
-                denoising_steps=args.denoising_steps,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-        elif args.model_type == "original":
-            policy = Gr00tPolicy(
-                model_path=args.model_path,
-                modality_config=modality_config,
-                modality_transform=modality_transform,
-                embodiment_tag=args.embodiment_tag,
-                denoising_steps=args.denoising_steps,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-        elif args.model_type == "ours_bon":
-            policy = Gr00TOursBoNPolicy(
-                model_path=args.model_path,
-                modality_config=modality_config,
-                modality_transform=modality_transform,
-                embodiment_tag=args.embodiment_tag,
-                denoising_steps=args.denoising_steps,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-        elif args.model_type == "ours_awr":
-            policy = Gr00TOursAWRPolicy(
-                model_path=args.model_path,
-                modality_config=modality_config,
-                modality_transform=modality_transform,
-                embodiment_tag=args.embodiment_tag,
-                denoising_steps=args.denoising_steps,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-        else:
-            raise ValueError(f"Invalid model type: {args.model_type}")
+        policy = Gr00tOursDualBoNPolicy(
+            actor_model_path=args.actor_model_path,
+            critic_model_path=args.critic_model_path,
+            modality_config=modality_config,
+            modality_transform=modality_transform,
+            embodiment_tag=args.embodiment_tag,
+            denoising_steps=args.denoising_steps,
+            num_samples=args.num_samples,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )
     else:
         policy: BasePolicy = RobotInferenceClient(host=args.host, port=args.port)
 
@@ -474,7 +443,7 @@ if __name__ == "__main__":
     # Grab reference to controller config and convert it to json-encoded string
     env_info = json.dumps(config)
 
-    if args.model_path is not None and args.model_type in ["fql", "ours", "ours_bon", "ours_awr"]:
+    if args.critic_model_path is not None and args.model_type in ["ours_dual_bon"]:
         assert args.action_horizon == policy.model.critic_action_horizon, (
             f"Action horizon mismatch: {args.action_horizon} != {policy.model.critic_action_horizon}"
         )
