@@ -412,7 +412,7 @@ if __name__ == "__main__":
     assert config.num_gpus > 0, "Number of GPUs must be greater than 0"
     print(f"Using {config.num_gpus} GPUs")
 
-    os.environ["WANDB_PROJECT"] = "gr00t-ours-critic-finetune"
+    os.environ["WANDB_PROJECT"] = "gr00t-ours-state-critic-finetune"
     wandb.init(
         project=os.environ["WANDB_PROJECT"],
         name=config.run_name,
