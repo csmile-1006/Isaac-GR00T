@@ -322,14 +322,9 @@ def main(config: ArgsConfig):
         dataloader_num_workers=config.dataloader_num_workers,
         dataloader_pin_memory=False,
         dataloader_persistent_workers=config.dataloader_num_workers > 0,
-        optim="adamw_torch",
-        adam_beta1=0.95,
-        adam_beta2=0.999,
-        adam_epsilon=1e-8,
-        # learning_rate=config.learning_rate,
-        # weight_decay=config.weight_decay,
-        # warmup_ratio=config.warmup_ratio,
-        # lr_scheduler_type="cosine",
+        optim="adam_torch",
+        learning_rate=config.learning_rate,
+        lr_scheduler_type="constant",
         logging_steps=10.0,
         num_train_epochs=300,
         max_steps=config.max_steps,
@@ -345,54 +340,12 @@ def main(config: ArgsConfig):
         torch_compile_mode=None,
     )
 
-    param_groups = model.critic_head.get_parameter_groups_for_separate_optimizers()
-    param_groups = [
-        {
-            "params": param_groups["value"],
-            "lr": config.value_lr,
-            "weight_decay": config.weight_decay,
-            "adam_beta1": 0.95,
-            "adam_beta2": 0.999,
-            "adam_epsilon": 1e-8,
-        },
-        {
-            "params": param_groups["critic"],
-            "lr": config.critic_lr,
-            "weight_decay": config.weight_decay,
-            "adam_beta1": 0.95,
-            "adam_beta2": 0.999,
-            "adam_epsilon": 1e-8,
-        },
-    ]
-
-    optimizer = torch.optim.AdamW(param_groups)
-
-    # 1) 코사인 decay + warmup
-    def cosine_warmup_lambda(current_step: int):
-        warmup_steps = int(config.warmup_ratio * config.max_steps)
-        total_steps = config.max_steps
-        if current_step < warmup_steps:
-            return float(current_step) / float(max(1, warmup_steps))
-        progress = (current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
-        return 0.5 * (1.0 + math.cos(math.pi * progress))
-
-    # 2) constant lr
-    def constant_lambda(current_step: int):
-        return 1.0
-
-    # 그룹별 스케줄러 결합
-    scheduler = LambdaLR(
-        optimizer,
-        lr_lambda=[constant_lambda, constant_lambda],  # param_groups 순서와 매칭
-    )
-
     # 2.2 run experiment
     experiment = CriticTrainRunner(
         train_dataset=train_dataset,
         model=model,
         training_args=training_args,
         resume_from_checkpoint=config.resume,
-        optimizers=(optimizer, scheduler),
     )
 
     # 2.3 run experiment
