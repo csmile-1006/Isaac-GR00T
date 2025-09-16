@@ -322,9 +322,9 @@ def main(config: ArgsConfig):
         dataloader_num_workers=config.dataloader_num_workers,
         dataloader_pin_memory=False,
         dataloader_persistent_workers=config.dataloader_num_workers > 0,
-        optim="adam_torch",
-        learning_rate=config.learning_rate,
-        lr_scheduler_type="constant",
+        # optim="adam_torch",
+        # learning_rate=config.learning_rate,
+        # lr_scheduler_type="constant",
         logging_steps=10.0,
         num_train_epochs=300,
         max_steps=config.max_steps,
@@ -340,12 +340,15 @@ def main(config: ArgsConfig):
         torch_compile_mode=None,
     )
 
+    optimizer = torch.optim.Adam(lr=config.learning_rate, params=model.parameters())
+
     # 2.2 run experiment
     experiment = CriticTrainRunner(
         train_dataset=train_dataset,
         model=model,
         training_args=training_args,
         resume_from_checkpoint=config.resume,
+        optimizers=(optimizer, None),
     )
 
     # 2.3 run experiment
