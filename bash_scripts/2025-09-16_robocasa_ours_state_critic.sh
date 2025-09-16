@@ -15,13 +15,18 @@ NUM_DEMOS=$2
 NUM_ROLLOUTS=$3
 STEPS=$4
 CRITIC_ACTION_HORIZON=$5
-DISCOUNT1=${6:-0.995}
-DISCOUNT2=${7:-0.995}
-NUM_GPUS=${8:-2}
-BATCH_SIZE=${9:-16}
+CKPT_TYPE=${6:-"SIL"}
+DISCOUNT1=${7:-0.995}
+DISCOUNT2=${8:-0.995}
+NUM_GPUS=${9:-2}
+BATCH_SIZE=${10:-16}
 
 BASE_PATH=/home/changyeon/
-CKPT_PATH=${BASE_PATH}/ckpts/${TASK_NAME}/SIL_bs32_step30000_demo100_rolldemo225/
+if [ ${CKPT_TYPE} == "SIL" ]; then
+    CKPT_PATH=${BASE_PATH}/ckpts/${TASK_NAME}/SIL_bs32_step30000_demo100_rolldemo225/
+elif [ ${CKPT_TYPE} == "BASE" ]; then
+    CKPT_PATH=${BASE_PATH}/ckpts/gr00tn15_rbcs100_bs32_60k/
+fi
 TOTAL_BATCH_SIZE=$((NUM_GPUS * BATCH_SIZE))
 
 source ${BASE_PATH}/miniconda3/bin/activate gr00t
