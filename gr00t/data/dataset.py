@@ -803,7 +803,7 @@ class LeRobotSingleDataset(Dataset):
         data_array: np.ndarray = np.stack(self.curr_traj_data[le_key])  # type: ignore
         # CUSTOM: for reward with successful demonstrations, increase the reward to last 10 executive timesteps
         if self.use_rl and modality == "reward" and np.sum(data_array) > 0:
-            data_array[-3:] = 1
+            data_array[-15:] = 1
         assert data_array.ndim == 1, f"Expected 1D array, got {data_array.shape} array"
 
         # Retrieve the data and pad it

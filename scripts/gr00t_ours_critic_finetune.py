@@ -341,6 +341,8 @@ def main(config: ArgsConfig):
     )
 
     optimizer = torch.optim.Adam(lr=config.learning_rate, params=model.parameters())
+    # Use a constant learning rate scheduler
+    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda step: 1.0)
 
     # 2.2 run experiment
     experiment = CriticTrainRunner(
@@ -348,7 +350,7 @@ def main(config: ArgsConfig):
         model=model,
         training_args=training_args,
         resume_from_checkpoint=config.resume,
-        optimizers=(optimizer, None),
+        optimizers=(optimizer, lr_scheduler),
     )
 
     # 2.3 run experiment

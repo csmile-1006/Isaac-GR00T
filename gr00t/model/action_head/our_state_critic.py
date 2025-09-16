@@ -24,7 +24,6 @@ from transformers.feature_extraction_utils import BatchFeature
 from gr00t.model.critic.hlg import HLGaussLoss
 from gr00t.model.critic.networks import StateDoubleCritic, StateValue
 
-from .flow_matching_action_head import CategorySpecificMLP, MultiEmbodimentActionEncoder
 
 
 @dataclass
@@ -105,21 +104,9 @@ class OurStateCritic(nn.Module):
         self.rl_config = RLConfig(**config.rl_config)
         self.critic_action_horizon = self.rl_config.critic_action_horizon
 
-        self.state_encoder = CategorySpecificMLP(
-            num_categories=config.max_num_embodiments,
-            input_dim=config.max_state_dim,
-            hidden_dim=self.hidden_size,
-            output_dim=self.input_embedding_dim,
-        )
-        self.ca_encoder = MultiEmbodimentActionEncoder(
-            action_dim=config.action_dim,
-            hidden_size=self.input_embedding_dim,
-            num_embodiments=config.max_num_embodiments,
-        )
-
         self.value_config = CriticConfig(**config.value_config)
         self.value = StateValue(
-            input_dim=self.input_embedding_dim,
+            input_dim=config.max_state_dim,
             hidden_size=self.value_config.hidden_dim,
             depth=self.value_config.depth,
             output_dim=self.rl_config.num_atoms,
@@ -127,13 +114,13 @@ class OurStateCritic(nn.Module):
 
         self.critic_config = CriticConfig(**config.critic_config)
         self.critic = StateDoubleCritic(
-            input_dim=self.input_embedding_dim * (self.critic_action_horizon + 1),
+            input_dim=config.max_state_dim + self.critic_action_horizon * config.action_dim,
             hidden_dims=[self.critic_config.hidden_dim] * self.critic_config.depth,
             output_dim=self.rl_config.num_atoms,
         )
 
         self.target_critic = StateDoubleCritic(
-            input_dim=self.input_embedding_dim * (self.critic_action_horizon + 1),
+            input_dim=config.max_state_dim + self.critic_action_horizon * config.action_dim,
             hidden_dims=[self.critic_config.hidden_dim] * self.critic_config.depth,
             output_dim=self.rl_config.num_atoms,
         )
@@ -161,10 +148,8 @@ class OurStateCritic(nn.Module):
         self.tune_critic = tune_critic
         for p in self.parameters():
             p.requires_grad = True
-        self.state_encoder.requires_grad_(False)
         self.target_critic.requires_grad_(False)
         if not tune_critic:
-            self.ca_encoder.requires_grad_(False)
             self.critic.requires_grad_(False)
         if not tune_value:
             self.value.requires_grad_(False)
@@ -174,37 +159,6 @@ class OurStateCritic(nn.Module):
         if not any(p.requires_grad for p in self.parameters()):
             print("Warning: No action head trainable parameters found.")
 
-    def get_parameter_groups_for_separate_optimizers(self):
-        """Get parameter groups for separate optimizers based on loss components."""
-        critic_params = []
-
-        # To avoid parameter overlap between groups, we will:
-        # 1. Build a mapping from parameter to group name(s)
-        # 2. Only assign each parameter to the first group it appears in (flow_matching > actor > critic)
-        # 3. Remove duplicates
-
-        # Collect all parameters for each group (with requires_grad)
-        value_params = []
-        critic_params = []
-
-        if self.tune_value:
-            value_params.extend(list(self.value.parameters()))
-
-        if self.tune_critic:
-            critic_params.extend(list(self.ca_encoder.parameters()))
-            critic_params.extend(list(self.critic.parameters()))
-
-        # Only keep parameters that require gradients
-        critic_params = [p for p in critic_params if p.requires_grad]
-        value_params = [p for p in value_params if p.requires_grad]
-
-        return {
-            "value": value_params,
-            "critic": critic_params,
-        }
-        # if self.freeze_decode_layer:
-        #     self.decode_layer.requires_grad_(False)
-
     def set_frozen_modules_to_eval_mode(self):
         """
         Huggingface will call model.train() at each training_step. To ensure
@@ -213,11 +167,9 @@ class OurStateCritic(nn.Module):
         """
         if self.training:
             if not self.tune_critic:
-                self.ca_encoder.eval()
                 self.critic.eval()
             if not self.tune_value:
                 self.value.eval()
-            self.state_encoder.eval()
 
     def prepare_input(self, batch: dict) -> BatchFeature:
         return BatchFeature(data=batch)
@@ -236,26 +188,17 @@ class OurStateCritic(nn.Module):
                 expanded = v.repeat(*factors)
                 action_input[k] = expanded
 
-        embodiment_id = action_input.embodiment_id
 
         batch_size = action_input.state.shape[0]
         device = action_input.state.device
 
-        # Embed state.
-        with torch.no_grad():
-            state_features = self.state_encoder(action_input.state, embodiment_id)
-        timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
-
-        v_logits = self.value(state_features)
+        v_logits = self.value(action_input.state)
         v_probs = torch.softmax(v_logits, dim=-1)
         vs = self.hlg.transform_from_probs(v_probs)
 
         # Value loss
         with torch.no_grad():
-            critic_action_features = self.ca_encoder(
-                action_input.action[:, : self.critic_action_horizon], timestep_tensor, embodiment_id
-            )
-            q1_logits, q2_logits = self.target_critic(state_features, critic_action_features)
+            q1_logits, q2_logits = self.target_critic(action_input.state, action_input.action[:, : self.critic_action_horizon])
             q_logits = torch.stack([q1_logits, q2_logits], dim=0)
             q_probs = torch.softmax(q_logits, dim=-1)
             qs = self.hlg.transform_from_probs(q_probs)
@@ -274,6 +217,7 @@ class OurStateCritic(nn.Module):
                 assert False, f"Invalid q_agg: {self.rl_config.q_agg}"
 
         g_hard = torch.where(q >= vs, self.rl_config.expectile, 1 - self.rl_config.expectile)
+        g_hard_ratio = torch.where(q >= vs, 1.0, 0.0).sum(dim=-1) / batch_size
         # Explicit cross entropy implementation: -sum(target * log_softmax(input))
         log_probs = F.log_softmax(v_logits, dim=-1)
         ce_loss = -(q_prob * log_probs).sum(dim=-1)
@@ -288,6 +232,7 @@ class OurStateCritic(nn.Module):
             "v_std": vs.std(),
             "v_min": vs.min(),
             "v_max": vs.max(),
+            "expectile_ratio": g_hard_ratio.mean(),
         }
         return value_loss, metrics
 
@@ -306,19 +251,6 @@ class OurStateCritic(nn.Module):
                 expanded = v.repeat(*factors)
                 action_input[k] = expanded
 
-        embodiment_id = action_input.embodiment_id
-
-        batch_size = action_input.state.shape[0]
-        device = action_input.state.device
-
-        # Embed state.
-        with torch.no_grad():
-            state_features = self.state_encoder(action_input.state, embodiment_id)
-        timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
-        critic_action_features = self.ca_encoder(
-            action_input.action[:, : self.critic_action_horizon], timestep_tensor, embodiment_id
-        )
-
         # Critic loss
         done = torch.prod(action_input.done, dim=-1)
         reward = action_input.reward
@@ -328,9 +260,8 @@ class OurStateCritic(nn.Module):
         scaled_rewards = torch.sum(reward * discounts1, dim=-1)
 
         with torch.no_grad():
-            next_state_features = self.state_encoder(action_input.next_state, embodiment_id)
 
-            v_logits = self.value(next_state_features)
+            v_logits = self.value(action_input.next_state)
             v_probs = torch.softmax(v_logits, dim=-1)
             vs = self.hlg.transform_from_probs(v_probs)
 
@@ -339,7 +270,7 @@ class OurStateCritic(nn.Module):
                 + (self.rl_config.discount2 ** (self.rl_config.nstep * self.critic_action_horizon)) * (1.0 - done) * vs
             )
 
-        q1_logits, q2_logits = self.critic(state_features, critic_action_features)
+        q1_logits, q2_logits = self.critic(action_input.state, action_input.action[:, : self.critic_action_horizon])
 
         q1_probs = torch.softmax(q1_logits, dim=-1)
         q2_probs = torch.softmax(q2_logits, dim=-1)

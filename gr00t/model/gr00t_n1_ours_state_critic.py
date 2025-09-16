@@ -217,20 +217,6 @@ class GR00T_N1_5_Ours_State_Critic(PreTrainedModel):
                 local_model_path=pretrained_gr00t_n1_5.local_model_path,
             )
 
-            # Transfer parameters from pretrained GR00T_N1_5 model
-
-            # Transfer action head parameters
-            critic_components = {
-                "state_encoder": "state_encoder",
-                "ca_encoder": "action_encoder",  # Uses same model
-            }
-
-            with torch.no_grad():
-                full_src = pretrained_gr00t_n1_5.action_head.state_dict()
-
-                for comp_name, prefix in tqdm(critic_components.items(), desc="Loading action head parameters"):
-                    subdict = {k[len(prefix) + 1 :]: v for k, v in full_src.items() if k.startswith(prefix)}
-                    getattr(pretrained_model.critic_head, comp_name).load_state_dict(subdict)
 
             # Set trainable parameters according to flags
             pretrained_model.critic_head.set_trainable_parameters(

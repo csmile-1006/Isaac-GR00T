@@ -260,8 +260,6 @@ class GR00T_N1_5_Ours_Critic(PreTrainedModel):
 
             # Transfer action head parameters
             critic_components = {
-                "state_encoder": "state_encoder",
-                "ca_encoder": "action_encoder",  # Uses same model
                 "vlln": "vlln",
                 "vl_self_attention": "vl_self_attention",
             }

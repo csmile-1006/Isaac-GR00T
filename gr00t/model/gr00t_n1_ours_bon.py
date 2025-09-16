@@ -380,7 +380,6 @@ class GR00T_N1_5_Ours_BoN(PreTrainedModel):
                 getattr(pretrained_model.action_head, comp_name).load_state_dict(subdict)
 
         critic_components = {
-            "ca_encoder": "ca_encoder",
             "backbone_encoder": "backbone_encoder",
             "value": "value",
             "critic": "critic",
