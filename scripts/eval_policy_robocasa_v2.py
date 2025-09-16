@@ -264,6 +264,12 @@ if __name__ == "__main__":
         default=4,
         help="Number of samples for BoN sampling.",
     )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Temperature for BoN sampling.",
+    )
 
     # robocasa env and evaluation parameters
     parser.add_argument(
@@ -403,6 +409,7 @@ if __name__ == "__main__":
                 embodiment_tag=args.embodiment_tag,
                 denoising_steps=args.denoising_steps,
                 num_samples=args.num_samples,
+                temperature=args.temperature,
                 device="cuda" if torch.cuda.is_available() else "cpu",
             )
         else:
@@ -564,6 +571,7 @@ if __name__ == "__main__":
         f"Expected at least {args.num_episodes} episodes, got {len(episode_successes)}"
     )
 
+    os.makedirs(args.output_path if args.output_path else "./", exist_ok=True)
     csv_path = Path(args.output_path if args.output_path else "./") / "eval.csv"
     with open(csv_path, mode="w", newline="") as csvfile:
         writer = csv.writer(csvfile)
