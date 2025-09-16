@@ -1186,16 +1186,18 @@ class SinglePandaGripperRLStateDataConfig(BaseDataConfig):
         "action.control_mode",
     ]
 
-    reward_keys = ["reward.next.reward"]
-    done_keys = ["done.next.done"]
+    def __init__(self, AS=1):
+        self.AS = AS
 
-    language_keys = ["annotation.human.action.task_description"]
-    observation_indices = [0]
-    action_indices = list(range(16))
-    reward_indices = list(range(16))
-    done_indices = list(range(16))
-    next_observation_indices = [16]
-    use_rl = True
+        self.reward_keys = ["reward.next.reward"]
+        self.done_keys = ["done.next.done"]
+        self.language_keys = ["annotation.human.action.task_description"]
+        self.observation_indices = [0]
+        self.action_indices = list(range(16))
+        self.reward_indices = list(range(self.AS))
+        self.done_indices = list(range(self.AS))
+        self.next_observation_indices = [self.AS]  # This is the right next state for RL training
+        self.use_rl = True
 
     def modality_config(self):
         state_modality = ModalityConfig(
@@ -1264,9 +1266,7 @@ class SinglePandaGripperRLStateDataConfig(BaseDataConfig):
             ),
             # concat transforms
             RLStateConcatTransform(
-                # video_concat_order=self.video_keys,
                 state_concat_order=self.state_keys,
-                # next_video_concat_order=self.next_video_keys,
                 next_state_concat_order=self.next_state_keys,
                 action_concat_order=self.action_keys,
             ),
@@ -1279,6 +1279,11 @@ class SinglePandaGripperRLStateDataConfig(BaseDataConfig):
         ]
 
         return ComposedModalityTransform(transforms=transforms)
+
+    @classmethod
+    def create(cls, AS=1):
+        """Convenience method for AS=1 configuration"""
+        return cls(AS=AS)
 
 
 ###########################################################################################
@@ -1493,7 +1498,7 @@ DATA_CONFIG_MAP = {
     "bimanual_panda_hand": BimanualPandaHandDataConfig(),
     "single_panda_gripper": SinglePandaGripperDataConfig(),
     "single_panda_gripper_rl": SinglePandaGripperRLDataConfig,
-    "single_panda_gripper_state_rl": SinglePandaGripperRLStateDataConfig(),
+    "single_panda_gripper_state_rl": SinglePandaGripperRLStateDataConfig,
     "single_panda_gripper_rl_inference": SinglePandaGripperRLInferenceConfig,
     "so100": So100DataConfig(),
     "so100_dualcam": So100DualCamDataConfig(),

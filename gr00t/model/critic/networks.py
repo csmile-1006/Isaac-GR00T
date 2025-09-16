@@ -182,3 +182,46 @@ class BRONetValue(nn.Module):
         B = states.shape[0]
         v = self.value(torch.cat([vl_embed_features.reshape(B, -1), states.reshape(B, -1)], dim=1))
         return v
+
+
+class StateValue(nn.Module):
+    def __init__(self, input_dim: int, hidden_size: int, depth: int, add_final_layer: bool = True, output_dim: int = 1):
+        super().__init__()
+        self.value = BRONet(
+            input_dim=input_dim,
+            hidden_size=hidden_size,
+            depth=depth,
+            add_final_layer=add_final_layer,
+            output_dim=output_dim,
+        )
+
+    def forward(self, states):
+        B = states.shape[0]
+        v = self.value(states.reshape(B, -1))
+        return v
+
+
+class StateDoubleCritic(nn.Module):
+    def __init__(self, input_dim: int, hidden_dims: list[int], add_final_layer: bool = True, output_dim: int = 1):
+        super().__init__()
+        self.Q1 = MLP(
+            input_dim=input_dim,
+            hidden_dims=hidden_dims,
+            output_dim=output_dim,
+        )
+        self.Q2 = MLP(
+            input_dim=input_dim,
+            hidden_dims=hidden_dims,
+            output_dim=output_dim,
+        )
+
+    def forward(self, states: torch.Tensor, actions: torch.Tensor):
+        B = states.shape[0]
+        state_action = torch.cat(
+            [states.reshape(B, -1), actions.reshape(B, -1)], dim=1
+        )
+        q1 = self.Q1(state_action)
+        q2 = self.Q2(state_action)
+
+        return q1, q2
+
