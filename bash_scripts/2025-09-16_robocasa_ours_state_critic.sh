@@ -31,7 +31,7 @@ TOTAL_BATCH_SIZE=$((NUM_GPUS * BATCH_SIZE))
 
 source ${BASE_PATH}/miniconda3/bin/activate gr00t
 cd ${BASE_PATH}/workspace/Isaac-GR00T
-RUN_NAME=OURS_State_Critic_as${CRITIC_ACTION_HORIZON}_d1${DISCOUNT1}_d2${DISCOUNT2}_bs${TOTAL_BATCH_SIZE}_steps${RUN_NAME}_dm${NUM_DEMOS}_roll${NUM_ROLLOUTS}
+RUN_NAME=OURS_State_Critic_${CKPT_TYPE}_as${CRITIC_ACTION_HORIZON}_d1${DISCOUNT1}_d2${DISCOUNT2}_bs${TOTAL_BATCH_SIZE}_steps${RUN_NAME}_dm${NUM_DEMOS}_roll${NUM_ROLLOUTS}
 python scripts/gr00t_ours_state_critic_finetune.py \
     --dataset-path ${BASE_PATH}/data/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/ ${BASE_PATH}/gr00tn15_robocasa/rollouts/${TASK_NAME}_num${NUM_ROLLOUTS}/lerobot \
     --base-model-path ${CKPT_PATH} \
