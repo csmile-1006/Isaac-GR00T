@@ -10,20 +10,16 @@
 #SBATCH --time=72:00:00      # 최대 48시간 실행
 
 HYPERPARAMS=(
-    "10000,4"
-    "10000,8"
-    "10000,16"
-    "20000,4"
-    "20000,8"
-    "20000,16"
-    "30000,4"
-    "30000,8"
-    "30000,16"
-    "40000,4"
-    "40000,8"
-    "40000,16"
+    "10000,16,0.1"
+    "20000,16,0.1"
+    "30000,16,0.1"
+    "40000,16,0.1"
+    "10000,16,1.0"
+    "20000,16,1.0"
+    "30000,16,1.0"
+    "40000,16,1.0"
 )
-IFS=',' read STEPS NUM_SAMPLES <<< "${HYPERPARAMS[$SLURM_ARRAY_TASK_ID]}"
+IFS=',' read STEPS NUM_SAMPLES TEMPERATURE <<< "${HYPERPARAMS[$SLURM_ARRAY_TASK_ID]}"
 
 TASK_NAME=$1
 ACTOR_CKPT_PATH=$2
@@ -47,7 +43,7 @@ cd ${ROOT_PATH}/workspace/Isaac-GR00T
 
 CKPT_FOLDER=$(basename "$(dirname "${CRITIC_CKPT_PATH}")")
 CKPT_STEP=$(basename "${CRITIC_CKPT_PATH}")
-OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/${TASK_NAME}/${CKPT_FOLDER}/${CKPT_STEP}_eval_n${NUM_ROLLOUTS}_bo${NUM_SAMPLES}
+OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/${TASK_NAME}/${CKPT_FOLDER}/${CKPT_STEP}_eval_n${NUM_ROLLOUTS}_bo${NUM_SAMPLES}_t${TEMPERATURE}
 script="
     MUJOCO_GL=egl \
     python scripts/eval_policy_robocasa_v2.py \
@@ -64,7 +60,8 @@ script="
     --noise 0.0 \
     --n_envs ${NUM_ENVS} \
     --output_path ${OUTPUT_PATH} \
-    --num_samples ${NUM_SAMPLES}
+    --num_samples ${NUM_SAMPLES} \
+    --temperature ${TEMPERATURE}
 "
 echo $script
 eval $script
