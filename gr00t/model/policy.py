@@ -32,6 +32,7 @@ from gr00t.model.gr00t_n1_fql import GR00T_N1_5_FQL
 from gr00t.model.gr00t_n1_ours import GR00T_N1_5_Ours
 from gr00t.model.gr00t_n1_ours_awr import GR00T_N1_5_Ours_AWR
 from gr00t.model.gr00t_n1_ours_bon import GR00T_N1_5_Ours_BoN
+from gr00t.model.gr00t_n1_ours_state_bon import GR00T_N1_5_Ours_State_BoN
 
 COMPUTE_DTYPE = torch.bfloat16
 
@@ -455,6 +456,16 @@ class Gr00tOursDualBoNPolicy(Gr00tPolicy):
 
     def _load_dual_model(self, actor_model_path, critic_model_path):
         model = GR00T_N1_5_Ours_BoN.from_pretrained_bc_and_critic(
+            actor_model_path, critic_model_path, torch_dtype=COMPUTE_DTYPE
+        )
+        model.eval()
+        model.to(device=self.device)  # type: ignore
+        self.model = model
+
+
+class Gr00tOursDualStateBoNPolicy(Gr00tOursDualBoNPolicy):
+    def _load_dual_model(self, actor_model_path, critic_model_path):
+        model = GR00T_N1_5_Ours_State_BoN.from_pretrained_bc_and_critic(
             actor_model_path, critic_model_path, torch_dtype=COMPUTE_DTYPE
         )
         model.eval()

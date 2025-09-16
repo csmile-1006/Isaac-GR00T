@@ -25,13 +25,13 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 
-from .action_head.our_action_head_bon import (
-    OurActionHeadBoN,
-    OurActionHeadBoNConfig,
+from .action_head.our_action_head_state_bon import (
+    OurActionHeadStateBoN,
+    OurActionHeadStateBoNConfig,
 )
 from .backbone import EagleBackbone
 from .gr00t_n1 import GR00T_N1_5
-from .gr00t_n1_ours_critic import GR00T_N1_5_Ours_Critic
+from .gr00t_n1_ours_state_critic import GR00T_N1_5_Ours_State_Critic
 
 BACKBONE_FEATURE_KEY = "backbone_features"
 ACTION_KEY = "action_pred"
@@ -42,8 +42,8 @@ N_COLOR_CHANNELS = 3
 
 # config
 @dataclass
-class GR00T_N1_5_Ours_BoN_Config(PretrainedConfig):
-    model_type = "gr00t_n1_5_ours_bon"
+class GR00T_N1_5_Ours_State_BoN_Config(PretrainedConfig):
+    model_type = "gr00t_n1_5_ours_state_bon"
     backbone_cfg: dict = field(init=False, metadata={"help": "Backbone configuration."})
 
     action_head_cfg: dict = field(init=False, metadata={"help": "Action head configuration."})
@@ -60,9 +60,9 @@ class GR00T_N1_5_Ours_BoN_Config(PretrainedConfig):
 
 
 # real model
-class GR00T_N1_5_Ours_BoN(PreTrainedModel):
+class GR00T_N1_5_Ours_State_BoN(PreTrainedModel):
     supports_gradient_checkpointing = True
-    config_class = GR00T_N1_5_Ours_BoN_Config
+    config_class = GR00T_N1_5_Ours_State_BoN_Config
     """
     we expect the backbone output to have a key 'backbone_features' with shape (batch_size, n, hidden_size)
     here n is variable and can be e.g. time, 1 or user specified
@@ -72,7 +72,7 @@ class GR00T_N1_5_Ours_BoN(PreTrainedModel):
 
     def __init__(
         self,
-        config: GR00T_N1_5_Ours_BoN_Config,
+        config: GR00T_N1_5_Ours_State_BoN_Config,
         local_model_path: str,
     ):
         assert isinstance(config.backbone_cfg, dict)
@@ -82,8 +82,8 @@ class GR00T_N1_5_Ours_BoN(PreTrainedModel):
         self.local_model_path = local_model_path
 
         self.backbone = EagleBackbone(**config.backbone_cfg)
-        action_head_cfg = OurActionHeadBoNConfig(**config.action_head_cfg)
-        self.action_head = OurActionHeadBoN(action_head_cfg)
+        action_head_cfg = OurActionHeadStateBoNConfig(**config.action_head_cfg)
+        self.action_head = OurActionHeadStateBoN(action_head_cfg)
 
         self.critic_action_horizon = action_head_cfg.rl_config["critic_action_horizon"]
         self.action_horizon = config.action_horizon
@@ -258,14 +258,14 @@ class GR00T_N1_5_Ours_BoN(PreTrainedModel):
         else:
             pretrained_gr00t_n1_5 = GR00T_N1_5.from_pretrained(pretrained_model_name_or_path, **kwargs)
 
-            new_cfg = GR00T_N1_5_Ours_BoN_Config()
+            new_cfg = GR00T_N1_5_Ours_State_BoN_Config()
             pretrained_gr00t_n1_5_cfg = pretrained_gr00t_n1_5.config.to_dict()
             for key, value in pretrained_gr00t_n1_5_cfg.items():
                 if key != "action_head_cfg":
                     setattr(new_cfg, key, value)
 
             # Transfer action head config
-            action_head_cfg = OurActionHeadBoNConfig(**pretrained_gr00t_n1_5_cfg["action_head_cfg"])
+            action_head_cfg = OurActionHeadStateBoNConfig(**pretrained_gr00t_n1_5_cfg["action_head_cfg"])
             action_head_cfg.critic_config = critic_cfg
             action_head_cfg.value_config = value_cfg
             action_head_cfg.rl_config = rl_cfg
@@ -335,16 +335,16 @@ class GR00T_N1_5_Ours_BoN(PreTrainedModel):
         print(f"Tune action head value: {tune_value}")
 
         pretrained_actor = GR00T_N1_5.from_pretrained(pretrained_actor_model_name_or_path, **kwargs)
-        pretrained_critic = GR00T_N1_5_Ours_Critic.from_pretrained(pretrained_critic_model_name_or_path, **kwargs)
+        pretrained_critic = GR00T_N1_5_Ours_State_Critic.from_pretrained(pretrained_critic_model_name_or_path, **kwargs)
 
-        new_cfg = GR00T_N1_5_Ours_BoN_Config()
+        new_cfg = GR00T_N1_5_Ours_State_BoN_Config()
         pretrained_actor_cfg = pretrained_actor.config.to_dict()
         for key, value in pretrained_actor_cfg.items():
             if key != "action_head_cfg":
                 setattr(new_cfg, key, value)
 
         # Transfer action head config
-        action_head_cfg = OurActionHeadBoNConfig(**pretrained_actor_cfg["action_head_cfg"])
+        action_head_cfg = OurActionHeadStateBoNConfig(**pretrained_actor_cfg["action_head_cfg"])
         action_head_cfg.critic_config = pretrained_critic.critic_head.critic_config.to_dict()
         action_head_cfg.value_config = pretrained_critic.critic_head.value_config.to_dict()
         action_head_cfg.rl_config = pretrained_critic.critic_head.rl_config.to_dict()
@@ -381,7 +381,6 @@ class GR00T_N1_5_Ours_BoN(PreTrainedModel):
 
         critic_components = {
             "ca_encoder": "ca_encoder",
-            "backbone_encoder": "backbone_encoder",
             "value": "value",
             "critic": "critic",
             "target_critic": "target_critic",
@@ -410,5 +409,5 @@ class GR00T_N1_5_Ours_BoN(PreTrainedModel):
 
 
 # register
-AutoConfig.register("gr00t_n1_5_ours_bon", GR00T_N1_5_Ours_BoN_Config)
-AutoModel.register(GR00T_N1_5_Ours_BoN_Config, GR00T_N1_5_Ours_BoN)
+AutoConfig.register("gr00t_n1_5_ours_state_bon", GR00T_N1_5_Ours_State_BoN_Config)
+AutoModel.register(GR00T_N1_5_Ours_State_BoN_Config, GR00T_N1_5_Ours_State_BoN)

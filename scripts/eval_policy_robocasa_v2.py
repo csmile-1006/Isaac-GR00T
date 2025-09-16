@@ -37,7 +37,7 @@ from tqdm import tqdm
 from gr00t.eval.robot import RobotInferenceClient
 from gr00t.eval.wrappers.robocasa_wrapper import load_robocasa_gym_env
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
-from gr00t.model.policy import BasePolicy, Gr00tOursDualBoNPolicy
+from gr00t.model.policy import BasePolicy, Gr00tOursDualBoNPolicy, Gr00tOursDualStateBoNPolicy
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
@@ -249,7 +249,7 @@ if __name__ == "__main__":
         "--model_type",
         type=str,
         default="ours_dual_bon",
-        choices=["ours_dual_bon"],
+        choices=["ours_dual_bon", "ours_dual_state_bon"],
         help="Type of model to use.",
     )
     parser.add_argument(
@@ -373,27 +373,40 @@ if __name__ == "__main__":
     args = parser.parse_args()
     control_seed(args.seed)
 
-    data_config = DATA_CONFIG_MAP[args.data_config]
-    if args.model_type in ["ours_dual_bon"]:
-        data_config = data_config(AS=args.action_horizon)
+    assert args.data_config in ["single_panda_gripper_rl_inference"], (
+        "Only single panda gripper RL inference data config is supported for now"
+    )
+    data_config = DATA_CONFIG_MAP[args.data_config](AS=args.action_horizon)
 
     if args.critic_model_path is not None:
         import torch
 
         modality_config = data_config.modality_config()
         modality_transform = data_config.transform()
-        assert args.model_type == "ours_dual_bon", "Only our dual BoN policy is supported for now"
-
-        policy = Gr00tOursDualBoNPolicy(
-            actor_model_path=args.actor_model_path,
-            critic_model_path=args.critic_model_path,
-            modality_config=modality_config,
-            modality_transform=modality_transform,
-            embodiment_tag=args.embodiment_tag,
-            denoising_steps=args.denoising_steps,
-            num_samples=args.num_samples,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-        )
+        if args.model_type == "ours_dual_bon":
+            policy = Gr00tOursDualBoNPolicy(
+                actor_model_path=args.actor_model_path,
+                critic_model_path=args.critic_model_path,
+                modality_config=modality_config,
+                modality_transform=modality_transform,
+                embodiment_tag=args.embodiment_tag,
+                denoising_steps=args.denoising_steps,
+                num_samples=args.num_samples,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+        elif args.model_type == "ours_dual_state_bon":
+            policy = Gr00tOursDualStateBoNPolicy(
+                actor_model_path=args.actor_model_path,
+                critic_model_path=args.critic_model_path,
+                modality_config=modality_config,
+                modality_transform=modality_transform,
+                embodiment_tag=args.embodiment_tag,
+                denoising_steps=args.denoising_steps,
+                num_samples=args.num_samples,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+        else:
+            raise ValueError(f"Invalid model type: {args.model_type}")
     else:
         policy: BasePolicy = RobotInferenceClient(host=args.host, port=args.port)
 

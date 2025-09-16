@@ -141,8 +141,7 @@ class OurStateCritic(nn.Module):
         self.target_critic.eval()
         # compute v_min and v_max according to the discount factor
         if self.rl_config.negative_reward:
-            # v_min = -1 * (1 / (1 - self.rl_config.discount2))
-            v_min = -1000.0
+            v_min = -1 * (1 / (1 - self.rl_config.discount2))
             v_max = 0.0
         else:
             v_min = 0.0
