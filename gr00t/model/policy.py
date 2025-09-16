@@ -398,7 +398,8 @@ class Gr00tOursDualBoNPolicy(Gr00tPolicy):
         modality_config: Dict[str, ModalityConfig],
         modality_transform: ComposedModalityTransform,
         denoising_steps: Optional[int] = None,
-        num_samples: int = 4,
+        num_samples: Optional[int] = None,
+        temperature: Optional[int] = None,
         device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
     ):
         """
@@ -453,6 +454,14 @@ class Gr00tOursDualBoNPolicy(Gr00tPolicy):
             ):
                 self.model.action_head.rl_config.num_samples = num_samples
                 print(f"Set number of samples to {num_samples}")
+        if temperature is not None:
+            if (
+                hasattr(self.model, "action_head")
+                and hasattr(self.model.action_head, "rl_config")
+                and hasattr(self.model.action_head.rl_config, "temperature")
+            ):
+                self.model.action_head.rl_config.temperature = temperature
+                print(f"Set evaluation temperature to {temperature}")
 
     def _load_dual_model(self, actor_model_path, critic_model_path):
         model = GR00T_N1_5_Ours_BoN.from_pretrained_bc_and_critic(

@@ -58,6 +58,7 @@ class RLConfig(PretrainedConfig):
     support_type: str = field(default="geometric", metadata={"help": "Support type for the critic."})
 
     num_samples: int = field(default=1, metadata={"help": "Number of samples for BoN sampling."})
+    temperature: float = field(default=0.0, metadata={"help": "Temperature for BoN sampling."})
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -698,7 +699,16 @@ class OurActionHeadStateBoN(nn.Module):
 
         # Select actions with highest q values
         # (batch_size,)
-        selected_indices = torch.argmax(q, dim=0)
+        if self.rl_config.temperature > 0:
+            q_dists = F.softmax(q / self.rl_config.temperature)
+            # Randomly sample indices according to q_dists (softmaxed q values)
+            # q_dists: (num_samples, batch_size)
+            # For each batch, sample one index from num_samples according to q_dists[:, i]
+            # Use torch.distributions.Categorical for sampling indices
+            cat_dist = torch.distributions.Categorical(probs=q_dists.transpose(0, 1))
+            selected_indices = cat_dist.sample()
+        else:
+            selected_indices = torch.argmax(q, dim=0)
         # (batch_size, action_horizon, action_dim)
         selected_actions = actions[selected_indices, torch.arange(batch_size)]  
 
