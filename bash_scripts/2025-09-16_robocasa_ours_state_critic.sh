@@ -4,7 +4,7 @@
 #SBATCH --error=/home/changyeon/slurm-logs/scritic_grn15_rc/%j.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --exclude=node5,node7
-#SBATCH --gres=gpu:4090:2   # GPU 1개 사용                                                                                                                  
+#SBATCH --gres=gpu:2   # GPU 1개 사용                                                                                                                  
 #SBATCH --cpus-per-gpu=8     # GPU당 CPU 사용 수                                                                                                             
 #SBATCH --mem-per-gpu=32G     # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 96시간 실행
