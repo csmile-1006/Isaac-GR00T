@@ -34,7 +34,7 @@ SERVER=${6:-"alin_slurm"}
 MODEL_TYPE=${7:-"ours_dual_bon"}
 ACTION_HORIZON=${8:-16}
 
-CRITIC_CKPT_PATH=${CRITIC_CKPT_PATH}/step-${STEPS}
+CRITIC_CKPT_PATH=${CRITIC_CKPT_PATH}/checkpoint-${STEPS}
 
 if [ "$SERVER" == "rlwrld" ]; then
     ROOT_PATH=/virtual_lab/sjw_alinlab/changyeon/
