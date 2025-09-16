@@ -6,7 +6,7 @@
 #SBATCH --gpus=1   # GPU 1개 사용                                                                                                                  
 #SBATCH --array=0-11
 #SBATCH --cpus-per-gpu=8    # GPU당 CPU 사용 수                                                                                                             
-#SBATCH --mem-per-gpu=16G    # GPU당 mem 사용량                                                                                                              
+#SBATCH --mem-per-gpu=32G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
 
 HYPERPARAMS=(
