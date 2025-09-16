@@ -33,7 +33,7 @@ python scripts/gr00t_ours_state_critic_finetune.py \
     --num-gpus ${NUM_GPUS} \
     --output-dir ${BASE_PATH}/ckpts/${TASK_NAME}/${RUN_NAME}/ \
     --max-steps ${STEPS} \
-    --data-config single_panda_gripper_rl \
+    --data-config single_panda_gripper_state_rl \
     --batch-size ${BATCH_SIZE} \
     --save-steps 10000 \
     --run-name ${RUN_NAME} \
