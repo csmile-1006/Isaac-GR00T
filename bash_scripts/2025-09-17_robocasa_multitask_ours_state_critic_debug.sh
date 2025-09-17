@@ -28,7 +28,7 @@ TASK_NAMES=(
     "PnPCabToCounter"
     "PnPMicrowaveToCounter"
     "TurnOffStove"
-    # "PnPCounterToMicrowave"
+    "PnPCounterToMicrowave"
 )
 
 dataset_path=""
