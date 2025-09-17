@@ -62,7 +62,7 @@ cd ${ROOT_PATH}/workspace/Isaac-GR00T
 
 CKPT_FOLDER=$(basename "$(dirname "${CRITIC_CKPT_PATH}")")
 CKPT_STEP=$(basename "${CRITIC_CKPT_PATH}")
-OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/${TASK_NAME}/${ACTOR_CKPT_TYPE}_{CKPT_FOLDER}/${CKPT_STEP}_eval_n${NUM_ROLLOUTS}_bo${NUM_SAMPLES}_t${TEMPERATURE}
+OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/${TASK_NAME}/${ACTOR_CKPT_TYPE}_${CKPT_FOLDER}/${CKPT_STEP}_eval_n${NUM_ROLLOUTS}_bo${NUM_SAMPLES}_t${TEMPERATURE}
 script="
     MUJOCO_GL=egl \
     python scripts/eval_policy_robocasa_v2.py \
