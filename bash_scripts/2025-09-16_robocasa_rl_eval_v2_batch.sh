@@ -9,6 +9,16 @@
 #SBATCH --mem-per-gpu=128G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
 
+TASK_NAME=$1
+ACTOR_CKPT_PATH=$2
+CRITIC_CKPT_PATH=$3
+NUM_ENVS=$4
+NUM_ROLLOUTS=$5
+SERVER=${6:-"alin_slurm"}
+MODEL_TYPE=${7:-"ours_dual_bon"}
+ACTION_HORIZON=${8:-16}
+N_SAMPLES=${9:-10}
+
 HYPERPARAMS=(
     # "10000,16,0.1"
     # "20000,16,0.1"
@@ -18,26 +28,19 @@ HYPERPARAMS=(
     # "20000,16,1.0"
     # "30000,16,1.0"
     # "40000,16,1.0"
-    "30000,10,0"
-    "60000,10,0"
-    "90000,10,0"
-    "30000,10,1.0"
-    "60000,10,1.0"
-    "90000,10,1.0"
-    "30000,10,0.1"
-    "60000,10,0.1"
-    "90000,10,0.1"
+    "30000,${N_SAMPLES},0"
+    "60000,${N_SAMPLES},0"
+    "90000,${N_SAMPLES},0"
+    "30000,${N_SAMPLES},1.0"
+    "60000,${N_SAMPLES},1.0"
+    "90000,${N_SAMPLES},1.0"
+    "30000,${N_SAMPLES},0.1"
+    "60000,${N_SAMPLES},0.1"
+    "90000,${N_SAMPLES},0.1"
 )
+
 IFS=',' read STEPS NUM_SAMPLES TEMPERATURE <<< "${HYPERPARAMS[$SLURM_ARRAY_TASK_ID]}"
 
-TASK_NAME=$1
-ACTOR_CKPT_PATH=$2
-CRITIC_CKPT_PATH=$3
-NUM_ENVS=$4
-NUM_ROLLOUTS=$5
-SERVER=${6:-"alin_slurm"}
-MODEL_TYPE=${7:-"ours_dual_bon"}
-ACTION_HORIZON=${8:-16}
 
 CRITIC_CKPT_PATH=${CRITIC_CKPT_PATH}/checkpoint-${STEPS}
 
