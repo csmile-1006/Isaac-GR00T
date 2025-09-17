@@ -84,4 +84,4 @@ script="
     --temperature ${TEMPERATURE}
 "
 echo $script
-# eval $script
+eval $script
