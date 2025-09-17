@@ -46,7 +46,8 @@ SCRIPT="
     --max-steps "${STEPS}" \
     --data-config single_panda_gripper \
     --batch-size ${BATCH_SIZE} \
-    --save-steps 10000
+    --save-steps 10000 \
+    --run-name "SIL_bs${TOTAL_BATCH_SIZE}_step${STEPS}_demo${NUM_DEMOS}" 
 "
 echo $SCRIPT
 eval $SCRIPT

@@ -32,7 +32,7 @@ TASK_NAMES=(
 dataset_path=""
 for TASK in ${TASK_NAMES[@]}; do
     TASK_NAME=$TASK
-    dataset_path="${dataset_path} ${BASE_PATH}/data/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/ ${BASE_PATH}/gr00tn15_robocasa/rollouts_num${NUM_ROLLOUTS}/${TASK_NAME}_num${NUM_ROLLOUTS}/lerobot/"
+    dataset_path="${dataset_path} ${BASE_PATH}/data/robocasa_dataset/${TASK_NAME}_num${NUM_DEMOS}/ ${BASE_PATH}/gr00tn15_robocasa/rollouts_num${NUM_ROLLOUTS}/${TASK_NAME}/lerobot/"
 done
 
 
@@ -46,7 +46,8 @@ SCRIPT="
     --max-steps "${STEPS}" \
     --data-config single_panda_gripper \
     --batch-size ${BATCH_SIZE} \
-    --save-steps 10000
+    --save-steps 10000 \
+    --run-name "ALL-FT_bs${TOTAL_BATCH_SIZE}_step${STEPS}_demo${NUM_DEMOS}_rollout${NUM_ROLLOUTS}" 
 "
 echo $SCRIPT
 eval $SCRIPT
