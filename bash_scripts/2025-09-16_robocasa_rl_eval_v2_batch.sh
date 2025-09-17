@@ -4,9 +4,9 @@
 #SBATCH --error=/home/changyeon/slurm-logs/eval_grn15_rc_rl_v2_batch/%j.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gpus=1   # GPU 1개 사용                                                                                                                  
-#SBATCH --array=0-11
+#SBATCH --array=0-8
 #SBATCH --cpus-per-gpu=16    # GPU당 CPU 사용 수                                                                                                             
-#SBATCH --mem-per-gpu=64G    # GPU당 mem 사용량                                                                                                              
+#SBATCH --mem-per-gpu=128G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
 
 HYPERPARAMS=(
@@ -18,10 +18,15 @@ HYPERPARAMS=(
     # "20000,16,1.0"
     # "30000,16,1.0"
     # "40000,16,1.0"
-    "10000,1,0"
-    "20000,1,0"
-    "30000,1,0"
-    "40000,1,0"
+    "30000,10,0"
+    "60000,10,0"
+    "90000,10,0"
+    "30000,10,1.0"
+    "60000,10,1.0"
+    "90000,10,1.0"
+    "30000,10,0.1"
+    "60000,10,0.1"
+    "90000,10,0.1"
 )
 IFS=',' read STEPS NUM_SAMPLES TEMPERATURE <<< "${HYPERPARAMS[$SLURM_ARRAY_TASK_ID]}"
 
