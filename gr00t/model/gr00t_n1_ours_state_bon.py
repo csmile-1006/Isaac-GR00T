@@ -384,6 +384,9 @@ class GR00T_N1_5_Ours_State_BoN(PreTrainedModel):
             "vlln": "vlln",
             "vl_self_attention": "vl_self_attention",
         }
+        if action_head_cfg.add_pos_embed:
+            print("Loading position embedding")
+            action_head_components["position_embedding"] = "position_embedding"
 
         print("[from_pretrained_bc_and_critic] Loading action head parameters")
         with torch.no_grad():
