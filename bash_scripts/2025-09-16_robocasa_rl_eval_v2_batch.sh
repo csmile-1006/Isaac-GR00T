@@ -14,10 +14,11 @@ ACTOR_CKPT_PATH=$2
 CRITIC_CKPT_PATH=$3
 NUM_ENVS=$4
 NUM_ROLLOUTS=$5
-SERVER=${6:-"alin_slurm"}
-MODEL_TYPE=${7:-"ours_dual_bon"}
-ACTION_HORIZON=${8:-16}
-N_SAMPLES=${9:-10}
+ACTOR_CKPT_TYPE=$6
+SERVER=${7:-"alin_slurm"}
+MODEL_TYPE=${8:-"ours_dual_bon"}
+ACTION_HORIZON=${9:-16}
+N_SAMPLES=${10:-10}
 
 HYPERPARAMS=(
     # "10000,16,0.1"
@@ -63,7 +64,7 @@ cd ${ROOT_PATH}/workspace/Isaac-GR00T
 
 CKPT_FOLDER=$(basename "$(dirname "${CRITIC_CKPT_PATH}")")
 CKPT_STEP=$(basename "${CRITIC_CKPT_PATH}")
-OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/${TASK_NAME}/${CKPT_FOLDER}/${CKPT_STEP}_eval_n${NUM_ROLLOUTS}_bo${NUM_SAMPLES}_t${TEMPERATURE}
+OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/${TASK_NAME}/${ACTOR_CKPT_TYPE}_{CKPT_FOLDER}/${CKPT_STEP}_eval_n${NUM_ROLLOUTS}_bo${NUM_SAMPLES}_t${TEMPERATURE}
 script="
     MUJOCO_GL=egl \
     python scripts/eval_policy_robocasa_v2.py \
