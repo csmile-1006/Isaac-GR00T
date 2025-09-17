@@ -290,10 +290,12 @@ class GR00T_N1_5_Ours_State_BoN(PreTrainedModel):
                 "state_encoder": "state_encoder",
                 "action_encoder": "action_encoder",
                 "action_decoder": "action_decoder",
-                "ca_encoder": "action_encoder",  # Uses same model
                 "vlln": "vlln",
                 "vl_self_attention": "vl_self_attention",
             }
+            if action_head_cfg.add_pos_embed:
+                print("Loading position embedding")
+                action_head_components["position_embedding"] = "position_embedding"
 
             with torch.no_grad():
                 full_src = pretrained_gr00t_n1_5.action_head.state_dict()
