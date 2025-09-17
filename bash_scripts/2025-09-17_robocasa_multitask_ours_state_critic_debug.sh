@@ -25,7 +25,7 @@ TOTAL_BATCH_SIZE=$((NUM_GPUS * BATCH_SIZE))
 
 TASK_NAMES=(
     # "CoffeeSetupMug"
-    # "PnPCabToCounter"
+    "PnPCabToCounter"
     "PnPMicrowaveToCounter"
     "TurnOffStove"
     # "PnPCounterToMicrowave"
