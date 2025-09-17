@@ -1,7 +1,7 @@
 #!/bin/bash                                                                                                                                                  
-#SBATCH --job-name=gr00tn15_rc_rollouts
-#SBATCH --output=/home/changyeon/slurm-logs/gr00tn15_rc_rollouts/%j.out  # log                                                                                                   
-#SBATCH --error=/home/changyeon/slurm-logs/gr00tn15_rc_rollouts/%j.err   # log                                                                                                   
+#SBATCH --job-name=rc_grn15_eval_batch
+#SBATCH --output=/home/changyeon/slurm-logs/rc_grn15_eval_batch/%j.out  # log                                                                                                   
+#SBATCH --error=/home/changyeon/slurm-logs/rc_grn15_eval_batch/%j.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gpus=1   # GPU 1개 사용                                                                                                                  
 #SBATCH --array=0-8
