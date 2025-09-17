@@ -630,7 +630,8 @@ class OurActionHeadStateBoN(nn.Module):
             # Update actions using euler integration.
             actions = actions + dt * pred_velocity
 
-        q1_logits, q2_logits = self.critic(action_input.state, actions[:, : self.critic_action_horizon])
+        states = action_input.state.repeat(self.rl_config.num_samples, 1, 1)
+        q1_logits, q2_logits = self.critic(states, actions[:, : self.critic_action_horizon])
         q1_probs, q2_probs = torch.softmax(q1_logits, dim=-1), torch.softmax(q2_logits, dim=-1)
         q1, q2 = self.hlg.transform_from_probs(q1_probs), self.hlg.transform_from_probs(q2_probs)
         q = torch.min(q1, q2)
