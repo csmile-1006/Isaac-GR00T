@@ -26,7 +26,8 @@ from gr00t.model.critic.hlg import HLGaussLoss
 from gr00t.model.critic.networks import DoubleCritic, Value
 
 from .cross_attention_dit import DiT, SelfAttentionTransformer
-from .flow_matching_action_head import CategorySpecificMLP, MultiEmbodimentActionEncoder
+from .flow_matching_action_head import CategorySpecificLinear, MultiEmbodimentActionEncoder
+from .flow_matching_action_head import CategorySpecificMLP as CategorySpecificMLP_MF
 
 
 @dataclass
@@ -52,12 +53,15 @@ class RLConfig(PretrainedConfig):
     nstep: int = field(default=1, metadata={"help": "Number of steps for reward."})
     tau: float = field(default=0.005, metadata={"help": "Tau for polyak update."})
 
+    feature_dim: int = field(default=64, metadata={"help": "Feature dimension for using in the critic."})
+
     num_atoms: int = field(default=101, metadata={"help": "Number of atoms for the critic."})
     sigma: float = field(default=0.1, metadata={"help": "Sigma for the critic."})
     expectile: float = field(default=0.9, metadata={"help": "Expectile for value loss."})
     support_type: str = field(default="geometric", metadata={"help": "Support type for the critic."})
 
     num_samples: int = field(default=1, metadata={"help": "Number of samples for BoN sampling."})
+    temperature: float = field(default=0.0, metadata={"help": "Temperature for BoN sampling."})
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -112,6 +116,22 @@ class OurActionHeadBoNConfig(PretrainedConfig):
             setattr(self, key, value)
 
 
+class CategorySpecificMLP(nn.Module):
+    def __init__(self, num_categories, input_dim, hidden_dim, output_dim):
+        super().__init__()
+        self.num_categories = num_categories
+        self.layer1 = CategorySpecificLinear(num_categories, input_dim, hidden_dim)
+        self.layer2 = CategorySpecificLinear(num_categories, hidden_dim, hidden_dim)
+        self.layer3 = CategorySpecificLinear(num_categories, hidden_dim, hidden_dim)
+        self.layer4 = CategorySpecificLinear(num_categories, hidden_dim, output_dim)
+
+    def forward(self, x, cat_ids):
+        hidden = F.silu(self.layer1(x, cat_ids))
+        hidden = F.silu(self.layer2(hidden, cat_ids))
+        hidden = F.silu(self.layer3(hidden, cat_ids))
+        return self.layer4(hidden, cat_ids)
+
+
 class OurActionHeadBoN(nn.Module):
     config_class = OurActionHeadBoNConfig
     supports_gradient_checkpointing = True
@@ -129,9 +149,10 @@ class OurActionHeadBoN(nn.Module):
         self.action_horizon = config.action_horizon
         self.rl_config = RLConfig(**config.rl_config)
         self.critic_action_horizon = self.rl_config.critic_action_horizon
+        self.feature_dim = self.rl_config.feature_dim
         self.num_inference_timesteps = config.num_inference_timesteps
 
-        self.state_encoder = CategorySpecificMLP(
+        self.state_encoder = CategorySpecificMLP_MF(
             num_categories=config.max_num_embodiments,
             input_dim=config.max_state_dim,
             hidden_dim=self.hidden_size,
@@ -142,27 +163,23 @@ class OurActionHeadBoN(nn.Module):
             hidden_size=self.input_embedding_dim,
             num_embodiments=config.max_num_embodiments,
         )
-        self.ca_encoder = MultiEmbodimentActionEncoder(
-            action_dim=config.action_dim,
-            hidden_size=self.input_embedding_dim,
-            num_embodiments=config.max_num_embodiments,
-        )
-        self.backbone_encoder = CategorySpecificMLP(
-            num_categories=config.max_num_embodiments,
-            input_dim=config.backbone_embedding_dim,
-            hidden_dim=self.hidden_size,
-            output_dim=self.input_embedding_dim,
-        )
-
-        self.action_decoder = CategorySpecificMLP(
+        self.action_decoder = CategorySpecificMLP_MF(
             num_categories=config.max_num_embodiments,
             input_dim=self.hidden_size,
             hidden_dim=self.hidden_size,
             output_dim=self.action_dim,
         )
+
+        self.backbone_encoder = CategorySpecificMLP(
+            num_categories=config.max_num_embodiments,
+            input_dim=config.backbone_embedding_dim,
+            hidden_dim=self.hidden_size,
+            output_dim=self.feature_dim,
+        )
+
         self.value_config = CriticConfig(**config.value_config)
         self.value = Value(
-            input_dim=self.input_embedding_dim * 2,
+            input_dim=config.max_state_dim + self.feature_dim,
             hidden_size=self.value_config.hidden_dim,
             depth=self.value_config.depth,
             output_dim=self.rl_config.num_atoms,
@@ -170,13 +187,13 @@ class OurActionHeadBoN(nn.Module):
 
         self.critic_config = CriticConfig(**config.critic_config)
         self.critic = DoubleCritic(
-            input_dim=self.input_embedding_dim * (self.critic_action_horizon + 2),
+            input_dim=config.max_state_dim + self.feature_dim + self.critic_action_horizon * config.action_dim,
             hidden_dims=[self.critic_config.hidden_dim] * self.critic_config.depth,
             output_dim=self.rl_config.num_atoms,
         )
 
         self.target_critic = DoubleCritic(
-            input_dim=self.input_embedding_dim * (self.critic_action_horizon + 2),
+            input_dim=config.max_state_dim + self.feature_dim + self.critic_action_horizon * config.action_dim,
             hidden_dims=[self.critic_config.hidden_dim] * self.critic_config.depth,
             output_dim=self.rl_config.num_atoms,
         )
@@ -225,7 +242,6 @@ class OurActionHeadBoN(nn.Module):
             self.state_encoder.requires_grad_(False)
             self.action_encoder.requires_grad_(False)
             self.action_decoder.requires_grad_(False)
-            self.ca_encoder.requires_grad_(False)
             self.backbone_encoder.requires_grad_(False)
             if self.config.add_pos_embed:
                 self.position_embedding.requires_grad_(False)
@@ -309,7 +325,6 @@ class OurActionHeadBoN(nn.Module):
             if not self.tune_diffusion_model:
                 self.model.eval()
             if not self.tune_critic:
-                self.ca_encoder.eval()
                 self.critic.eval()
             if not self.tune_value:
                 self.value.eval()
@@ -452,23 +467,21 @@ class OurActionHeadBoN(nn.Module):
         device = vl_embeds.device
 
         # Embed state.
-        with torch.no_grad():
-            state_features = self.state_encoder(action_input.state, embodiment_id)
-        timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
         vl_embeds_mean = vl_embeds.mean(dim=1, keepdim=True)
         vl_embed_features = self.backbone_encoder(vl_embeds_mean, embodiment_id)
+        vl_embed_features = F.tanh(vl_embed_features)
 
-        v_logits = self.value(vl_embed_features, state_features)
+        v_logits = self.value(vl_embed_features, action_input.state)
         v_probs = torch.softmax(v_logits, dim=-1)
         vs = self.hlg.transform_from_probs(v_probs)
 
         # Value loss
         with torch.no_grad():
             vl_embed_features = self.backbone_encoder(vl_embeds_mean, embodiment_id)
-            critic_action_features = self.ca_encoder(
-                action_input.action[:, : self.critic_action_horizon], timestep_tensor, embodiment_id
+            vl_embed_features = F.tanh(vl_embed_features)
+            q1_logits, q2_logits = self.target_critic(
+                vl_embed_features, action_input.state, action_input.action[:, : self.critic_action_horizon]
             )
-            q1_logits, q2_logits = self.target_critic(vl_embed_features, state_features, critic_action_features)
             q_logits = torch.stack([q1_logits, q2_logits], dim=0)
             q_probs = torch.softmax(q_logits, dim=-1)
             qs = self.hlg.transform_from_probs(q_probs)
@@ -487,6 +500,7 @@ class OurActionHeadBoN(nn.Module):
                 assert False, f"Invalid q_agg: {self.rl_config.q_agg}"
 
         g_hard = torch.where(q >= vs, self.rl_config.expectile, 1 - self.rl_config.expectile)
+        g_hard_ratio = torch.where(q >= vs, 1.0, 0.0).sum(dim=-1) / batch_size
         # Explicit cross entropy implementation: -sum(target * log_softmax(input))
         log_probs = F.log_softmax(v_logits, dim=-1)
         ce_loss = -(q_prob * log_probs).sum(dim=-1)
@@ -501,6 +515,7 @@ class OurActionHeadBoN(nn.Module):
             "v_std": vs.std(),
             "v_min": vs.min(),
             "v_max": vs.max(),
+            "expectile_ratio": g_hard_ratio.mean(),
         }
         return value_loss, metrics
 
@@ -549,18 +564,9 @@ class OurActionHeadBoN(nn.Module):
         next_vl_embeds = next_backbone_output.backbone_features.detach()
         embodiment_id = action_input.embodiment_id
 
-        batch_size = vl_embeds.shape[0]
-        device = vl_embeds.device
-
-        # Embed state.
-        with torch.no_grad():
-            state_features = self.state_encoder(action_input.state, embodiment_id)
-        timestep_tensor = torch.full(size=(batch_size,), fill_value=0, device=device)
-        critic_action_features = self.ca_encoder(
-            action_input.action[:, : self.critic_action_horizon], timestep_tensor, embodiment_id
-        )
         vl_embeds_mean = vl_embeds.mean(dim=1, keepdim=True)
         vl_embed_features = self.backbone_encoder(vl_embeds_mean, embodiment_id)
+        vl_embed_features = F.tanh(vl_embed_features)
 
         # Critic loss
         done = torch.prod(action_input.done, dim=-1)
@@ -573,9 +579,9 @@ class OurActionHeadBoN(nn.Module):
         with torch.no_grad():
             next_vl_embeds_mean = next_vl_embeds.mean(dim=1, keepdim=True)
             next_vl_embed_features = self.backbone_encoder(next_vl_embeds_mean, embodiment_id)
-            next_state_features = self.state_encoder(action_input.next_state, embodiment_id)
+            next_vl_embed_features = F.tanh(next_vl_embed_features)
 
-            v_logits = self.value(next_vl_embed_features, next_state_features)
+            v_logits = self.value(next_vl_embed_features, action_input.next_state)
             v_probs = torch.softmax(v_logits, dim=-1)
             vs = self.hlg.transform_from_probs(v_probs)
 
@@ -584,7 +590,9 @@ class OurActionHeadBoN(nn.Module):
                 + (self.rl_config.discount2 ** (self.rl_config.nstep * self.critic_action_horizon)) * (1.0 - done) * vs
             )
 
-        q1_logits, q2_logits = self.critic(vl_embed_features, state_features, critic_action_features)
+        q1_logits, q2_logits = self.critic(
+            vl_embed_features, action_input.state, action_input.action[:, : self.critic_action_horizon]
+        )
 
         q1_probs = torch.softmax(q1_logits, dim=-1)
         q2_probs = torch.softmax(q2_logits, dim=-1)
@@ -691,13 +699,10 @@ class OurActionHeadBoN(nn.Module):
 
         vl_embeds_mean = vl_embs.mean(dim=1, keepdim=True)
         vl_embed_features = self.backbone_encoder(vl_embeds_mean, embodiment_id)
+        vl_embed_features = F.tanh(vl_embed_features)
 
-        timestep_tensor = torch.full(size=(self.rl_config.num_samples * batch_size,), fill_value=0, device=device)
-        critic_action_features = self.ca_encoder(
-            actions[:, : self.critic_action_horizon], timestep_tensor, embodiment_id
-        )
-
-        q1_logits, q2_logits = self.critic(vl_embed_features, state_features, critic_action_features)
+        state = action_input.state.repeat(self.rl_config.num_samples, 1, 1)
+        q1_logits, q2_logits = self.critic(vl_embed_features, state, actions[:, : self.critic_action_horizon])
         q1_probs, q2_probs = torch.softmax(q1_logits, dim=-1), torch.softmax(q2_logits, dim=-1)
         q1, q2 = self.hlg.transform_from_probs(q1_probs), self.hlg.transform_from_probs(q2_probs)
         q = torch.min(q1, q2)
@@ -709,9 +714,18 @@ class OurActionHeadBoN(nn.Module):
 
         # Select actions with highest q values
         # (batch_size,)
-        selected_indices = torch.argmax(q, dim=0)
+        if self.rl_config.temperature > 0:
+            q_dists = F.softmax(q / self.rl_config.temperature, dim=0)
+            # Randomly sample indices according to q_dists (softmaxed q values)
+            # q_dists: (num_samples, batch_size)
+            # For each batch, sample one index from num_samples according to q_dists[:, i]
+            # Use torch.distributions.Categorical for sampling indices
+            cat_dist = torch.distributions.Categorical(probs=q_dists.transpose(0, 1))
+            selected_indices = cat_dist.sample()
+        else:
+            selected_indices = torch.argmax(q, dim=0)
         # (batch_size, action_horizon, action_dim)
-        selected_actions = actions[selected_indices, torch.arange(batch_size)]  
+        selected_actions = actions[selected_indices, torch.arange(batch_size)]
 
         # Apply critic action horizon if needed
         if hasattr(self, "critic_action_horizon") and self.critic_action_horizon < self.config.action_horizon:

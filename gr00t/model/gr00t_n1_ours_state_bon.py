@@ -26,8 +26,10 @@ from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedMode
 from transformers.feature_extraction_utils import BatchFeature
 
 from .action_head.our_action_head_state_bon import (
+    CriticConfig,
     OurActionHeadStateBoN,
     OurActionHeadStateBoNConfig,
+    RLConfig,
 )
 from .backbone import EagleBackbone
 from .gr00t_n1 import GR00T_N1_5
@@ -266,9 +268,9 @@ class GR00T_N1_5_Ours_State_BoN(PreTrainedModel):
 
             # Transfer action head config
             action_head_cfg = OurActionHeadStateBoNConfig(**pretrained_gr00t_n1_5_cfg["action_head_cfg"])
-            action_head_cfg.critic_config = critic_cfg
-            action_head_cfg.value_config = value_cfg
-            action_head_cfg.rl_config = rl_cfg
+            action_head_cfg.critic_config = CriticConfig(**critic_cfg).to_dict()
+            action_head_cfg.value_config = CriticConfig(**value_cfg).to_dict()
+            action_head_cfg.rl_config = RLConfig(**rl_cfg).to_dict()
             new_cfg.action_head_cfg = action_head_cfg.to_dict()
 
             pretrained_model = cls(
@@ -326,7 +328,9 @@ class GR00T_N1_5_Ours_State_BoN(PreTrainedModel):
         tune_critic = kwargs.pop("tune_critic", True)
         tune_value = kwargs.pop("tune_value", True)
 
-        print(f"Loading pretrained dual brain from {pretrained_actor_model_name_or_path} and {pretrained_critic_model_name_or_path}")
+        print(
+            f"Loading pretrained dual brain from {pretrained_actor_model_name_or_path} and {pretrained_critic_model_name_or_path}"
+        )
         print(f"Tune backbone vision tower: {tune_visual}")
         print(f"Tune backbone LLM: {tune_llm}")
         print(f"Tune action head projector: {tune_projector}")
@@ -345,9 +349,17 @@ class GR00T_N1_5_Ours_State_BoN(PreTrainedModel):
 
         # Transfer action head config
         action_head_cfg = OurActionHeadStateBoNConfig(**pretrained_actor_cfg["action_head_cfg"])
-        action_head_cfg.critic_config = pretrained_critic.critic_head.critic_config.to_dict()
-        action_head_cfg.value_config = pretrained_critic.critic_head.value_config.to_dict()
-        action_head_cfg.rl_config = pretrained_critic.critic_head.rl_config.to_dict()
+        # Cleanly update action_head_cfg with critic, value, and rl configs from pretrained_critic
+        for attr, _cls in [
+            ("critic_config", CriticConfig),
+            ("value_config", CriticConfig),
+            ("rl_config", RLConfig),
+        ]:
+            setattr(
+                action_head_cfg,
+                attr,
+                _cls(**getattr(pretrained_critic.critic_head, attr).to_dict()).to_dict(),
+            )
         new_cfg.action_head_cfg = action_head_cfg.to_dict()
 
         pretrained_model = cls(
@@ -380,12 +392,11 @@ class GR00T_N1_5_Ours_State_BoN(PreTrainedModel):
                 getattr(pretrained_model.action_head, comp_name).load_state_dict(subdict)
 
         critic_components = {
-            "ca_encoder": "ca_encoder",
             "value": "value",
             "critic": "critic",
             "target_critic": "target_critic",
         }
-        
+
         print("[from_pretrained_bc_and_critic] Loading critic parameters")
         with torch.no_grad():
             full_src = pretrained_critic.critic_head.state_dict()

@@ -21,7 +21,6 @@ import torch
 import tree
 from huggingface_hub import snapshot_download
 from huggingface_hub.errors import HFValidationError, RepositoryNotFoundError
-from tqdm import tqdm
 from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 
@@ -122,7 +121,7 @@ class GR00T_N1_5_Ours_State_Critic(PreTrainedModel):
 
     def validate_data(self, critic_outputs, is_training=True):
         fail_critic = (not isinstance(critic_outputs, BatchFeature)) or not (
-            (LOSS_KEY in critic_outputs and is_training)  # there might not be an action prediction during training
+            LOSS_KEY in critic_outputs and is_training  # there might not be an action prediction during training
         )
 
         if fail_critic:
@@ -216,7 +215,6 @@ class GR00T_N1_5_Ours_State_Critic(PreTrainedModel):
                 config=new_cfg,
                 local_model_path=pretrained_gr00t_n1_5.local_model_path,
             )
-
 
             # Set trainable parameters according to flags
             pretrained_model.critic_head.set_trainable_parameters(
