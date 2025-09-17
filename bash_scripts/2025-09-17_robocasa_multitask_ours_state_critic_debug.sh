@@ -27,7 +27,7 @@ TASK_NAMES=(
     # "CoffeeSetupMug"
     # "PnPCabToCounter"
     "PnPMicrowaveToCounter"
-    # "TurnOffStove"
+    "TurnOffStove"
     # "PnPCounterToMicrowave"
 )
 
