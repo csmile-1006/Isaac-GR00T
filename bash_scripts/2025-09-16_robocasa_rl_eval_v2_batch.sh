@@ -39,12 +39,12 @@ HYPERPARAMS=(
     "90000,${N_SAMPLES},0"
     "90000,${N_SAMPLES},0.1"
     "90000,${N_SAMPLES},1.0"
-    "90000,${(N_SAMPLES * 2)},0"
-    "90000,${(N_SAMPLES * 2)},0.1"
-    "90000,${(N_SAMPLES * 2)},1.0"
-    "90000,${(N_SAMPLES * 5)},0"
-    "90000,${(N_SAMPLES * 5)},0.1"
-    "90000,${(N_SAMPLES * 5)},1.0"
+    "90000,$((N_SAMPLES * 2)),0"
+    "90000,$((N_SAMPLES * 2)),0.1"
+    "90000,$((N_SAMPLES * 2)),1.0"
+    "90000,$((N_SAMPLES * 5)),0"
+    "90000,$((N_SAMPLES * 5)),0.1"
+    "90000,$((N_SAMPLES * 5)),1.0"
 )
 
 IFS=',' read STEPS NUM_SAMPLES TEMPERATURE <<< "${HYPERPARAMS[$SLURM_ARRAY_TASK_ID]}"
@@ -84,4 +84,4 @@ script="
     --temperature ${TEMPERATURE}
 "
 echo $script
-eval $script
+# eval $script
