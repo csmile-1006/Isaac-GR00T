@@ -4,21 +4,22 @@
 #SBATCH --error=/home/changyeon/slurm-logs/eval_grn15_rc_rl_v2_batch/%j.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gpus=1   # GPU 1개 사용                                                                                                                  
-#SBATCH --array=0-8
+#SBATCH --array=0-5
 #SBATCH --cpus-per-gpu=16    # GPU당 CPU 사용 수                                                                                                             
 #SBATCH --mem-per-gpu=128G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
 
 TASK_NAME=$1
 ACTOR_CKPT_PATH=$2
-CRITIC_CKPT_PATH=$3
-NUM_ENVS=$4
-NUM_ROLLOUTS=$5
-ACTOR_CKPT_TYPE=$6
-SERVER=${7:-"alin_slurm"}
-MODEL_TYPE=${8:-"ours_dual_bon"}
-ACTION_HORIZON=${9:-16}
-N_SAMPLES=${10:-10}
+ACTOR_CKPT_TYPE=$3
+CRITIC_CKPT_PATH=$4
+CRITIC_CHECKPOINT=$5
+NUM_ENVS=$6
+NUM_ROLLOUTS=$7
+SERVER=${8:-"alin_slurm"}
+MODEL_TYPE=${9:-"ours_dual_bon"}
+ACTION_HORIZON=${10:-16}
+N_SAMPLES=${11:-10}
 
 HYPERPARAMS=(
     # "10000,16,0.1"
@@ -37,15 +38,12 @@ HYPERPARAMS=(
     # "90000,${N_SAMPLES},1.0"
     # "30000,${N_SAMPLES},0.1"
     # "60000,${N_SAMPLES},0.1"
-    "100000,${N_SAMPLES},0"
-    "100000,${N_SAMPLES},0.1"
-    "100000,${N_SAMPLES},1.0"
-    "100000,$((N_SAMPLES * 2)),0"
-    "100000,$((N_SAMPLES * 2)),0.1"
-    "100000,$((N_SAMPLES * 2)),1.0"
-    "100000,$((N_SAMPLES * 5)),0"
-    "100000,$((N_SAMPLES * 5)),0.1"
-    "100000,$((N_SAMPLES * 5)),1.0"
+    "${CHECKPOINT},${N_SAMPLES},0"
+    "${CHECKPOINT},${N_SAMPLES},1.0"
+    "${CHECKPOINT},$((N_SAMPLES * 2)),0"
+    "${CHECKPOINT},$((N_SAMPLES * 2)),1.0"
+    "${CHECKPOINT},$((N_SAMPLES * 5)),0"
+    "${CHECKPOINT},$((N_SAMPLES * 5)),1.0"
 )
 
 IFS=',' read STEPS NUM_SAMPLES TEMPERATURE <<< "${HYPERPARAMS[$SLURM_ARRAY_TASK_ID]}"
