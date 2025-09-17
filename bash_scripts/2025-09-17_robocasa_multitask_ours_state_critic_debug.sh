@@ -24,7 +24,7 @@ BASE_PATH=/home/changyeon/
 TOTAL_BATCH_SIZE=$((NUM_GPUS * BATCH_SIZE))
 
 TASK_NAMES=(
-    # "CoffeeSetupMug"
+    "CoffeeSetupMug"
     "PnPCabToCounter"
     "PnPMicrowaveToCounter"
     "TurnOffStove"
