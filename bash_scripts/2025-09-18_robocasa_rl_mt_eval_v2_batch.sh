@@ -4,7 +4,7 @@
 #SBATCH --error=/home/changyeon/slurm-logs/eval_grn15_rc_rl_mt/%A_%a.err   # log
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gres=gpu:a6000:1   # GPU 1개 사용                                                                                                                  
-#SBATCH --array=0-59%10
+#SBATCH --array=0-239%10
 #SBATCH --cpus-per-gpu=8    # GPU당 CPU 사용 수                                                                                                             
 #SBATCH --mem-per-gpu=64G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
@@ -22,30 +22,37 @@ TASK_NAMES=(
     "PnPCounterToMicrowave"
 )
 
+CRITIC_CKPT_PATHS=(
+    "/home/changyeon/ckpts/multiple/OURS_Critic_as16_e0.9_d10.9_d20.99_bs64_steps_dm100_roll300/,ours_dual_bon,30000"
+    "/home/changyeon/ckpts/multiple/OURS_Critic_as16_e0.7_d10.9_d20.99_bs64_steps_dm100_roll300/,ours_dual_bon,30000"
+    "/home/changyeon/ckpts/multiple/OURS_State_Critic_as16_e0.9_d10.9_d20.99_bs512_steps100000_dm100_roll300/,ours_dual_state_bon,100000"
+    "/home/changyeon/ckpts/multiple/OURS_State_Critic_as16_e0.7_d10.9_d20.99_bs512_steps100000_dm100_roll300/,ours_dual_state_bon,100000"
+)
+
 ACTOR_CKPT_PATH=$1
 ACTOR_CKPT_TYPE=$2
-CRITIC_CKPT_PATH=$3
-CRITIC_CHECKPOINT=$4
-NUM_ENVS=$5
-NUM_ROLLOUTS=$6
-SERVER=${7:-"alin_slurm"}
-MODEL_TYPE=${8:-"ours_dual_bon"}
-ACTION_HORIZON=${9:-16}
-N_SAMPLES=${10:-10}
+NUM_ENVS=$3
+NUM_ROLLOUTS=$4
+SERVER=${5:-"alin_slurm"}
+ACTION_HORIZON=${6:-16}
+N_SAMPLES=${7:-10}
 
 # Create a single HYPERPARAMS list that repeats the same setup for each TASK_NAME
 HYPERPARAMS=()
 for TASK in "${TASK_NAMES[@]}"; do
     for SEED in "${SEEDS[@]}"; do
-        HYPERPARAMS+=(
-            "${CRITIC_CHECKPOINT},${N_SAMPLES},0,${TASK},${SEED}"
-            "${CRITIC_CHECKPOINT},${N_SAMPLES},1.0,${TASK},${SEED}"
-            "${CRITIC_CHECKPOINT},$((N_SAMPLES * 5)),0,${TASK},${SEED}"
-            "${CRITIC_CHECKPOINT},$((N_SAMPLES * 5)),1.0,${TASK},${SEED}"
-        )
+        for CKPT_LINE in "${CRITIC_CKPT_PATHS[@]}"; do
+            IFS=',' read -r CRITIC_CKPT_PATH MODEL_TYPE CRITIC_CHECKPOINT <<< "$CKPT_LINE"
+            HYPERPARAMS+=(
+                "${CRITIC_CHECKPOINT},${N_SAMPLES},0,${TASK},${SEED},${CRITIC_CKPT_PATH},${MODEL_TYPE},${CRITIC_CHECKPOINT}"
+                "${CRITIC_CHECKPOINT},${N_SAMPLES},1.0,${TASK},${SEED},${CRITIC_CKPT_PATH},${MODEL_TYPE},${CRITIC_CHECKPOINT}"
+                "${CRITIC_CHECKPOINT},$((N_SAMPLES * 5)),0,${TASK},${SEED},${CRITIC_CKPT_PATH},${MODEL_TYPE},${CRITIC_CHECKPOINT}"
+                "${CRITIC_CHECKPOINT},$((N_SAMPLES * 5)),1.0,${TASK},${SEED},${CRITIC_CKPT_PATH},${MODEL_TYPE},${CRITIC_CHECKPOINT}"
+            )
+        done
     done
 done
-IFS=',' read STEPS NUM_SAMPLES TEMPERATURE TASK_NAME SEED <<< "${HYPERPARAMS[$SLURM_ARRAY_TASK_ID]}"
+IFS=',' read STEPS NUM_SAMPLES TEMPERATURE TASK_NAME SEED CRITIC_CKPT_PATH MODEL_TYPE STEPS <<< "${HYPERPARAMS[$SLURM_ARRAY_TASK_ID]}"
 
 
 CRITIC_CKPT_PATH=${CRITIC_CKPT_PATH}/checkpoint-${STEPS}
