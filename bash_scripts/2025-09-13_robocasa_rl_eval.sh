@@ -1,10 +1,10 @@
 #!/bin/bash                                                                                                                                                  
-#SBATCH --job-name=gr00tn15_rc_rollouts
-#SBATCH --output=/home/changyeon/slurm-logs/gr00tn15_rc_rollouts/%j.out  # log                                                                                                   
-#SBATCH --error=/home/changyeon/slurm-logs/gr00tn15_rc_rollouts/%j.err   # log                                                                                                   
+#SBATCH --job-name=grn15_rc_rl_eval
+#SBATCH --output=/home/changyeon/slurm-logs/grn15_rc_rl_eval/%j.out  # log                                                                                                   
+#SBATCH --error=/home/changyeon/slurm-logs/grn15_rc_rl_eval/%j.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gpus=1   # GPU 1개 사용                                                                                                                  
-#SBATCH --cpus-per-gpu=16     # GPU당 CPU 사용 수                                                                                                             
+#SBATCH --cpus-per-gpu=8     # GPU당 CPU 사용 수                                                                                                             
 #SBATCH --mem-per-gpu=128G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
 
