@@ -23,6 +23,7 @@ from typing import List, Literal
 import torch
 import tyro
 from transformers import TrainingArguments
+import wandb
 
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
@@ -311,6 +312,14 @@ if __name__ == "__main__":
     ), f"Number of GPUs requested ({config.num_gpus}) is greater than the available GPUs ({available_gpus})"
     assert config.num_gpus > 0, "Number of GPUs must be greater than 0"
     print(f"Using {config.num_gpus} GPUs")
+
+    os.environ["WANDB_PROJECT"] = "gr00t-finetune"
+    wandb.init(
+        project=os.environ["WANDB_PROJECT"],
+        name=config.run_name,
+        config=vars(config),
+        settings=wandb.Settings(_disable_stats=True),
+    )
 
     if config.num_gpus == 1:
         # Single GPU mode - set CUDA_VISIBLE_DEVICES=0
