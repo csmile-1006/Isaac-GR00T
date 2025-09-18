@@ -1,7 +1,7 @@
 #!/bin/bash                                                                                                                                                  
 #SBATCH --job-name=mt_eval_gr00tn15
-#SBATCH --output=/home/changyeon/slurm-logs/mt_eval_gr00tn15/%j.out  # log                                                                                                   
-#SBATCH --error=/home/changyeon/slurm-logs/mt_eval_gr00tn15/%j.err   # log                                                                                                   
+#SBATCH --output=/home/changyeon/slurm-logs/mt_eval_gr00tn15/%A_%a.out  # log                                                                                                   
+#SBATCH --error=/home/changyeon/slurm-logs/mt_eval_gr00tn15/%A_%a.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gres=gpu:a6000:1   # GPU 1개 사용                                                                                                                  
 #SBATCH --array=0-14
