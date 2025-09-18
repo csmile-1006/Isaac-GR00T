@@ -4,7 +4,7 @@
 #SBATCH --error=/home/changyeon/slurm-logs/mt_eval_gr00tn15/%j.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gres=gpu:a6000:1   # GPU 1개 사용                                                                                                                  
-#SBATCH --array=0-4
+#SBATCH --array=0-14
 #SBATCH --cpus-per-gpu=16     # GPU당 CPU 사용 수                                                                                                             
 #SBATCH --mem-per-gpu=128G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
