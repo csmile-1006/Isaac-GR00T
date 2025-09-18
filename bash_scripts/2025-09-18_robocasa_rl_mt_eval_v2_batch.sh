@@ -4,11 +4,16 @@
 #SBATCH --error=/home/changyeon/slurm-logs/eval_grn15_rc_rl_mt/%A_%a.err   # log
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gres=gpu:a6000:1   # GPU 1개 사용                                                                                                                  
-#SBATCH --array=0-29
+#SBATCH --array=0-59
 #SBATCH --cpus-per-gpu=16    # GPU당 CPU 사용 수                                                                                                             
 #SBATCH --mem-per-gpu=128G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
 
+SEEDS=(
+    0
+    42
+    123
+)
 TASK_NAMES=(
     "CoffeeSetupMug"
     "PnPCabToCounter"
@@ -31,16 +36,16 @@ N_SAMPLES=${10:-10}
 # Create a single HYPERPARAMS list that repeats the same setup for each TASK_NAME
 HYPERPARAMS=()
 for TASK in "${TASK_NAMES[@]}"; do
-    HYPERPARAMS+=(
-        "${CRITIC_CHECKPOINT},${N_SAMPLES},0,${TASK}"
-        "${CRITIC_CHECKPOINT},${N_SAMPLES},1.0,${TASK}"
-        "${CRITIC_CHECKPOINT},$((N_SAMPLES * 2)),0,${TASK}"
-        "${CRITIC_CHECKPOINT},$((N_SAMPLES * 2)),1.0,${TASK}"
-        "${CRITIC_CHECKPOINT},$((N_SAMPLES * 5)),0,${TASK}"
-        "${CRITIC_CHECKPOINT},$((N_SAMPLES * 5)),1.0,${TASK}"
-    )
+    for SEED in "${SEEDS[@]}"; do
+        HYPERPARAMS+=(
+            "${CRITIC_CHECKPOINT},${N_SAMPLES},0,${TASK},${SEED}"
+            "${CRITIC_CHECKPOINT},${N_SAMPLES},1.0,${TASK},${SEED}"
+            "${CRITIC_CHECKPOINT},$((N_SAMPLES * 5)),0,${TASK},${SEED}"
+            "${CRITIC_CHECKPOINT},$((N_SAMPLES * 5)),1.0,${TASK},${SEED}"
+        )
+    done
 done
-IFS=',' read STEPS NUM_SAMPLES TEMPERATURE TASK_NAME <<< "${HYPERPARAMS[$SLURM_ARRAY_TASK_ID]}"
+IFS=',' read STEPS NUM_SAMPLES TEMPERATURE TASK_NAME SEED <<< "${HYPERPARAMS[$SLURM_ARRAY_TASK_ID]}"
 
 
 CRITIC_CKPT_PATH=${CRITIC_CKPT_PATH}/checkpoint-${STEPS}
@@ -56,7 +61,7 @@ cd ${ROOT_PATH}/workspace/Isaac-GR00T
 
 CKPT_FOLDER=$(basename "$(dirname "${CRITIC_CKPT_PATH}")")
 CKPT_STEP=$(basename "${CRITIC_CKPT_PATH}")
-OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/${TASK_NAME}/${ACTOR_CKPT_TYPE}_${CKPT_FOLDER}/${CKPT_STEP}_eval_n${NUM_ROLLOUTS}_bo${NUM_SAMPLES}_t${TEMPERATURE}
+OUTPUT_PATH=${ROOT_PATH}/gr00tn15_robocasa/evaluations/multiple/${ACTOR_CKPT_TYPE}_${CKPT_FOLDER}/${CKPT_STEP}_s${SEED}_${TASK_NAME}_eval_n${NUM_ROLLOUTS}_bo${NUM_SAMPLES}_t${TEMPERATURE}
 script="
     MUJOCO_GL=egl \
     python scripts/eval_policy_robocasa_v2.py \
@@ -74,7 +79,8 @@ script="
     --n_envs ${NUM_ENVS} \
     --output_path ${OUTPUT_PATH} \
     --num_samples ${NUM_SAMPLES} \
-    --temperature ${TEMPERATURE}
+    --temperature ${TEMPERATURE} \
+    --seed ${SEED}
 "
 echo $script
 eval $script
