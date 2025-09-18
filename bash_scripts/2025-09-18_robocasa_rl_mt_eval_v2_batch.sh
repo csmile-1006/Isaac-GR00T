@@ -4,9 +4,9 @@
 #SBATCH --error=/home/changyeon/slurm-logs/eval_grn15_rc_rl_mt/%A_%a.err   # log
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gres=gpu:a6000:1   # GPU 1개 사용                                                                                                                  
-#SBATCH --array=0-59%6
+#SBATCH --array=0-59%10
 #SBATCH --cpus-per-gpu=8    # GPU당 CPU 사용 수                                                                                                             
-#SBATCH --mem-per-gpu=32G    # GPU당 mem 사용량                                                                                                              
+#SBATCH --mem-per-gpu=64G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
 
 SEEDS=(
