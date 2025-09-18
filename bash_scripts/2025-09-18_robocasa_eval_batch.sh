@@ -66,4 +66,4 @@ script="
     --save_video
 "
 echo $script
-# eval $script
+eval $script
