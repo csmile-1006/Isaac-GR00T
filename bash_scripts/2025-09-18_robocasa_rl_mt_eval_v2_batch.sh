@@ -77,5 +77,4 @@ script="
     --temperature ${TEMPERATURE}
 "
 echo $script
-exit
 eval $script
