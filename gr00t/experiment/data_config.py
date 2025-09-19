@@ -1634,6 +1634,149 @@ class DroidPandaWristGripperDataConfig(BaseDataConfig):
         return ComposedModalityTransform(transforms=transforms)
 
 
+class DroidPandaWristGripperRLDataConfig(BaseDataConfig):
+    video_keys = [
+        "video.front_view",
+        "video.wrist_view",
+    ]
+    state_keys = [
+        "state.arm_eef_pos",
+        "state.arm_eef_rot",
+        "state.gripper",
+    ]
+    action_keys = [
+        "action.arm_eef_pos",
+        "action.arm_eef_rot",
+        "action.gripper",
+    ]
+    next_video_keys = [
+        "next_video.front_view",
+        "next_video.wrist_view",
+    ]
+    next_state_keys = [
+        "next_state.arm_eef_pos",
+        "next_state.arm_eef_rot",
+        "next_state.gripper",
+    ]
+
+    def __init__(self, AS=1):
+        self.AS = AS
+
+        self.reward_keys = ["reward.next.reward"]
+        self.done_keys = ["done.next.done"]
+        self.language_keys = ["annotation.human.action.task_description"]
+        self.observation_indices = [0]
+        self.action_indices = list(range(16))
+        self.reward_indices = list(range(self.AS))
+        self.done_indices = list(range(self.AS))
+        self.next_observation_indices = [self.AS]
+        self.use_rl = True
+
+    def modality_config(self):
+        video_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.video_keys,
+        )
+        state_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.state_keys,
+        )
+        action_modality = ModalityConfig(
+            delta_indices=self.action_indices,
+            modality_keys=self.action_keys,
+        )
+        language_modality = ModalityConfig(
+            delta_indices=self.observation_indices,
+            modality_keys=self.language_keys,
+        )
+        reward_modality = ModalityConfig(
+            delta_indices=self.reward_indices,
+            modality_keys=self.reward_keys,
+        )
+        done_modality = ModalityConfig(
+            delta_indices=self.done_indices,
+            modality_keys=self.done_keys,
+        )
+        next_state_modality = ModalityConfig(
+            delta_indices=self.next_observation_indices,
+            modality_keys=self.next_state_keys,
+        )
+        next_video_modality = ModalityConfig(
+            delta_indices=self.next_observation_indices,
+            modality_keys=self.next_video_keys,
+        )
+        modality_configs = {
+            "video": video_modality,
+            "state": state_modality,
+            "action": action_modality,
+            "language": language_modality,
+            "reward": reward_modality,
+            "done": done_modality,
+            "next_state": next_state_modality,
+            "next_video": next_video_modality,
+        }
+        return modality_configs
+
+    def transform(self):
+        video_keys = self.video_keys + self.next_video_keys
+        state_keys = self.state_keys + self.next_state_keys
+        transforms = [
+            # video transforms
+            VideoToTensor(apply_to=video_keys),
+            VideoCrop(apply_to=video_keys, scale=0.95),
+            VideoResize(apply_to=video_keys, height=224, width=224, interpolation="linear"),
+            VideoColorJitter(
+                apply_to=video_keys,
+                brightness=0.3,
+                contrast=0.4,
+                saturation=0.5,
+                hue=0.08,
+            ),
+            VideoToNumpy(apply_to=video_keys),
+            StateActionToTensor(apply_to=state_keys),
+            StateActionTransform(
+                apply_to=state_keys,
+                normalization_modes={
+                    "state.arm_eef_pos": "min_max",
+                    "state.gripper": "min_max",
+                },
+                target_rotations={
+                    "state.arm_eef_rot": "rotation_6d",
+                },
+            ),
+            # action transforms
+            StateActionToTensor(apply_to=self.action_keys),
+            StateActionTransform(
+                apply_to=self.action_keys,
+                normalization_modes={
+                    "action.arm_eef_pos": "min_max",
+                    "action.arm_eef_rot": "min_max",
+                    "action.gripper": "binary",
+                },
+            ),
+            # concat transforms
+            RLConcatTransform(
+                video_concat_order=self.video_keys,
+                state_concat_order=self.state_keys,
+                next_video_concat_order=self.next_video_keys,
+                next_state_concat_order=self.next_state_keys,
+                action_concat_order=self.action_keys,
+            ),
+            GR00TRLTransform(
+                state_horizon=len(self.observation_indices),
+                action_horizon=len(self.action_indices),
+                max_state_dim=64,
+                max_action_dim=32,
+            ),
+        ]
+
+        return ComposedModalityTransform(transforms=transforms)
+
+    @classmethod
+    def create(cls, AS=1):
+        return cls(AS=AS)
+
+
 DATA_CONFIG_MAP = {
     "fourier_gr1_arms_waist": FourierGr1ArmsWaistDataConfig(),
     "fourier_gr1_arms_only": FourierGr1ArmsOnlyDataConfig(),
@@ -1653,4 +1796,5 @@ DATA_CONFIG_MAP = {
     "libero": LiberoDataConfig(),
     # real robot experiment data configs
     "droid_panda_wrist_gripper": DroidPandaWristGripperDataConfig(),
+    "droid_panda_wrist_gripper_rl": DroidPandaWristGripperRLDataConfig,
 }
