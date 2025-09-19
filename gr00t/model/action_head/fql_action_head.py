@@ -464,8 +464,9 @@ class FQLActionHead(nn.Module):
                 * (1.0 - done)
                 * next_q  # pyright: ignore[reportPossiblyUnboundVariable]
             )
+        action = self.get_action(backbone_output, action_input)["action_pred"]
         q1, q2 = self.critic(
-            vl_embed_features, action_input.state, action_input.action[:, : self.critic_action_horizon]
+            vl_embed_features, action_input.state, action[:, : self.critic_action_horizon]
         )
         critic_loss = ((target_q - q1) ** 2 + (target_q - q2) ** 2).mean()
 
