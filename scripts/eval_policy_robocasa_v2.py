@@ -37,7 +37,13 @@ from tqdm import tqdm
 from gr00t.eval.robot import RobotInferenceClient
 from gr00t.eval.wrappers.robocasa_wrapper import load_robocasa_gym_env
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
-from gr00t.model.policy import BasePolicy, Gr00tOursDualBoNPolicy, Gr00tOursDualStateBoNPolicy
+from gr00t.model.policy import (
+    BasePolicy,
+    Gr00tOursDualBoNPolicy,
+    Gr00tOursDualStateBoNPolicy,
+    Gr00tIQLDualBoNPolicy,
+    Gr00tFQLPolicy,
+)
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
@@ -249,7 +255,7 @@ if __name__ == "__main__":
         "--model_type",
         type=str,
         default="ours_dual_bon",
-        choices=["ours_dual_bon", "ours_dual_state_bon"],
+        choices=["ours_dual_bon", "ours_dual_state_bon", "iql_dual_bon", "qc"],
         help="Type of model to use.",
     )
     parser.add_argument(
@@ -412,6 +418,29 @@ if __name__ == "__main__":
                 temperature=args.temperature,
                 device="cuda" if torch.cuda.is_available() else "cpu",
             )
+        elif args.model_type == "iql_dual_bon":
+            policy = Gr00tIQLDualBoNPolicy(
+                actor_model_path=args.actor_model_path,
+                critic_model_path=args.critic_model_path,
+                modality_config=modality_config,
+                modality_transform=modality_transform,
+                embodiment_tag=args.embodiment_tag,
+                denoising_steps=args.denoising_steps,
+                num_samples=args.num_samples,
+                temperature=args.temperature,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+        elif args.model_type == "qc":
+            policy = Gr00tFQLPolicy(
+                model_path=args.actor_model_path,
+                modality_config=modality_config,
+                modality_transform=modality_transform,
+                embodiment_tag=args.embodiment_tag,
+                denoising_steps=args.denoising_steps,
+                num_samples=args.num_samples,
+                temperature=args.temperature,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
         else:
             raise ValueError(f"Invalid model type: {args.model_type}")
     else:
@@ -463,7 +492,7 @@ if __name__ == "__main__":
     # Grab reference to controller config and convert it to json-encoded string
     env_info = json.dumps(config)
 
-    if args.critic_model_path is not None and args.model_type in ["ours_dual_bon"]:
+    if args.critic_model_path is not None and args.model_type in ["ours_dual_bon", "ours_dual_state_bon", "qc"]:
         assert args.action_horizon == policy.model.critic_action_horizon, (
             f"Action horizon mismatch: {args.action_horizon} != {policy.model.critic_action_horizon}"
         )

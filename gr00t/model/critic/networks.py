@@ -118,6 +118,10 @@ class DoubleCritic(nn.Module):
         q1 = self.Q1(state_action)
         q2 = self.Q2(state_action)
 
+        if q1.shape[-1] == 1:
+            q1 = q1.squeeze(-1)
+        if q2.shape[-1] == 1:
+            q2 = q2.squeeze(-1)
         return q1, q2
 
 
@@ -146,7 +150,10 @@ class BRONetDoubleCritic(nn.Module):
         )
         q1 = self.Q1(state_action)
         q2 = self.Q2(state_action)
-
+        if q1.shape[-1] == 1:
+            q1 = q1.squeeze(-1)
+        if q2.shape[-1] == 1:
+            q2 = q2.squeeze(-1)
         return q1, q2
 
 
@@ -164,6 +171,8 @@ class Value(nn.Module):
     def forward(self, vl_embed_features, states):
         B = states.shape[0]
         v = self.value(torch.cat([vl_embed_features.reshape(B, -1), states.reshape(B, -1)], dim=1))
+        if v.shape[-1] == 1:
+            v = v.squeeze(-1)
         return v
 
 
@@ -181,6 +190,8 @@ class BRONetValue(nn.Module):
     def forward(self, vl_embed_features: torch.Tensor, states: torch.Tensor):
         B = states.shape[0]
         v = self.value(torch.cat([vl_embed_features.reshape(B, -1), states.reshape(B, -1)], dim=1))
+        if v.shape[-1] == 1:
+            v = v.squeeze(-1)
         return v
 
 
@@ -198,6 +209,8 @@ class StateValue(nn.Module):
     def forward(self, states):
         B = states.shape[0]
         v = self.value(states.reshape(B, -1))
+        if v.shape[-1] == 1:
+            v = v.squeeze(-1)
         return v
 
 
@@ -223,5 +236,9 @@ class StateDoubleCritic(nn.Module):
         q1 = self.Q1(state_action)
         q2 = self.Q2(state_action)
 
+        if q1.shape[-1] == 1:
+            q1 = q1.squeeze(-1)
+        if q2.shape[-1] == 1:
+            q2 = q2.squeeze(-1)
         return q1, q2
 

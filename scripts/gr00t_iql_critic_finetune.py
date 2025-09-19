@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
 import os
 import subprocess
 import sys
@@ -24,15 +23,14 @@ from typing import List, Literal
 
 import torch
 import tyro
-from torch.optim.lr_scheduler import LambdaLR
 from transformers import TrainingArguments
 
 import wandb
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
 from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
-from gr00t.experiment.runner import RLTrainRunner
-from gr00t.model.gr00t_n1_fql import GR00T_N1_5_FQL
+from gr00t.experiment.runner import CriticTrainRunner
+from gr00t.model.gr00t_n1_iql_critic import GR00T_N1_5_IQL_Critic
 from gr00t.model.transforms import EMBODIMENT_TAG_MAPPING
 from gr00t.utils.peft import get_lora_model
 
@@ -74,14 +72,17 @@ class ArgsConfig:
     tune_visual: bool = False
     """Whether to fine-tune the vision tower."""
 
-    tune_projector: bool = False
+    tune_projector: bool = True
     """Whether to fine-tune the projector."""
 
-    tune_diffusion_model: bool = False
+    tune_diffusion_model: bool = True
     """Whether to fine-tune the diffusion model."""
 
     tune_critic: bool = True
     """Whether to fine-tune the critic."""
+
+    tune_value: bool = True
+    """Whether to fine-tune the value."""
 
     resume: bool = False
     """Whether to resume from a checkpoint."""
@@ -137,23 +138,39 @@ class ArgsConfig:
     critic_lr: float = 3e-4
     """Learning rate for the critic."""
 
-    hidden_dim: int = 512
+    critic_hidden_dim: int = 512
     """Hidden dimension for the critic."""
 
-    depth: int = 4
+    critic_depth: int = 4
     """Depth for the critic."""
 
-    output_dim: int = 1
+    critic_output_dim: int = 1
     """Output dimension for the critic."""
 
-    # FQL parameters
+    # Value parameters
+    value_lr: float = 3e-4
+    """Learning rate for the value."""
+
+    value_hidden_dim: int = 256
+    """Hidden dimension for the value."""
+
+    value_depth: int = 4
+    """Depth for the value."""
+
+    value_output_dim: int = 1
+    """Output dimension for the value."""
+
+    # Ours parameters
+    expectile: float = 0.9
+    """Expectile for value loss."""
+
     q_agg: str = "min"
     """Aggregation function for critic loss."""
 
-    discount1: float = 0.995
+    discount1: float = 0.99
     """Discount factor for inner MDP."""
 
-    discount2: float = 0.995
+    discount2: float = 0.99
     """Discount factor for outer MDP."""
 
     negative_reward: bool = True
@@ -165,8 +182,11 @@ class ArgsConfig:
     tau: float = 0.005
     """Tau for polyak update."""
 
-    critic_action_horizon: int = 4
+    critic_action_horizon: int = 1
     """Action horizon for the critic."""
+
+    support_type: Literal["geometric", "smdp"] = "geometric"
+    """Support type for the critic."""
 
 
 #####################################################################################
@@ -228,9 +248,14 @@ def main(config: ArgsConfig):
 
     # 1-3. critic config and rl config
     critic_config = dict(
-        hidden_dim=config.hidden_dim,
-        depth=config.depth,
-        output_dim=config.output_dim,
+        hidden_dim=config.critic_hidden_dim,
+        depth=config.critic_depth,
+        output_dim=config.critic_output_dim,
+    )
+    value_config = dict(
+        hidden_dim=config.value_hidden_dim,
+        depth=config.value_depth,
+        output_dim=config.value_output_dim,
     )
     rl_config = dict(
         critic_action_horizon=config.critic_action_horizon,
@@ -240,18 +265,23 @@ def main(config: ArgsConfig):
         negative_reward=config.negative_reward,
         nstep=config.nstep,
         tau=config.tau,
+        expectile=config.expectile,
+        support_type=config.support_type,
     )
 
     # ------------ step 2: load model ------------
-    model = GR00T_N1_5_FQL.from_pretrained_bc(
-        pretrained_actor_model_name_or_path=config.base_model_path,
+    model = GR00T_N1_5_IQL_Critic.from_pretrained(
+        pretrained_model_name_or_path=config.base_model_path,
+        value_cfg=value_config,
         critic_cfg=critic_config,
         rl_cfg=rl_config,
         tune_llm=config.tune_llm,  # backbone's LLM
         tune_visual=config.tune_visual,  # backbone's vision tower
         tune_projector=config.tune_projector,  # action head's projector
         tune_diffusion_model=config.tune_diffusion_model,  # action head's DiT
+        tune_value=config.tune_value,  # action head's value
         tune_critic=config.tune_critic,  # action head's critic
+        from_gr00t_n1_5=True,
     )
     #
     # Set the model's compute_dtype to bfloat16
@@ -300,51 +330,17 @@ def main(config: ArgsConfig):
         torch_compile_mode=None,
     )
 
-    param_groups = model.action_head.get_parameter_groups_for_separate_optimizers()
-    param_groups = [
-        {
-            "params": param_groups["flow_matching"],
-            "lr": config.learning_rate,
-            "weight_decay": config.weight_decay,
-            "adam_beta1": 0.95,
-            "adam_beta2": 0.999,
-            "adam_epsilon": 1e-8,
-        },
-        {
-            "params": param_groups["critic"],
-            "lr": config.critic_lr,
-            "weight_decay": 0.0,
-        },
-    ]
-
-    optimizer = torch.optim.AdamW(param_groups)
-
-    # 1) 코사인 decay + warmup
-    def cosine_warmup_lambda(current_step: int):
-        warmup_steps = int(config.warmup_ratio * config.max_steps)
-        total_steps = config.max_steps
-        if current_step < warmup_steps:
-            return float(current_step) / float(max(1, warmup_steps))
-        progress = (current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
-        return 0.5 * (1.0 + math.cos(math.pi * progress))
-
-    # 2) constant lr
-    def constant_lambda(current_step: int):
-        return 1.0
-
-    # 그룹별 스케줄러 결합
-    scheduler = LambdaLR(
-        optimizer,
-        lr_lambda=[cosine_warmup_lambda, constant_lambda],  # param_groups 순서와 매칭
-    )
+    optimizer = torch.optim.Adam(lr=config.learning_rate, params=model.parameters())
+    # Use a constant learning rate scheduler
+    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda step: 1.0)
 
     # 2.2 run experiment
-    experiment = RLTrainRunner(
+    experiment = CriticTrainRunner(
         train_dataset=train_dataset,
         model=model,
         training_args=training_args,
         resume_from_checkpoint=config.resume,
-        optimizers=(optimizer, scheduler),
+        optimizers=(optimizer, lr_scheduler),
     )
 
     # 2.3 run experiment
@@ -372,7 +368,7 @@ if __name__ == "__main__":
     assert config.num_gpus > 0, "Number of GPUs must be greater than 0"
     print(f"Using {config.num_gpus} GPUs")
 
-    os.environ["WANDB_PROJECT"] = "gr00t-fql-finetune"
+    os.environ["WANDB_PROJECT"] = "gr00t-iql-critic-finetune"
     wandb.init(
         project=os.environ["WANDB_PROJECT"],
         name=config.run_name,

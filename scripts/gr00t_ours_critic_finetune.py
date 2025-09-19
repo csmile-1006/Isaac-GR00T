@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
 import os
 import subprocess
 import sys
@@ -24,7 +23,6 @@ from typing import List, Literal
 
 import torch
 import tyro
-from torch.optim.lr_scheduler import LambdaLR
 from transformers import TrainingArguments
 import wandb
 

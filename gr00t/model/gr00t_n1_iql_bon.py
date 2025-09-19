@@ -25,12 +25,15 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 from transformers.feature_extraction_utils import BatchFeature
 
-from .action_head.fql_action_head import (
-    FQLActionHead,
-    FQLActionHeadConfig,
+from .action_head.iql_action_head_bon  import (
+    CriticConfig,
+    IQLActionHeadBoN,
+    IQLActionHeadBoNConfig,
+    RLConfig,
 )
 from .backbone import EagleBackbone
 from .gr00t_n1 import GR00T_N1_5
+from .gr00t_n1_iql_critic import GR00T_N1_5_IQL_Critic
 
 BACKBONE_FEATURE_KEY = "backbone_features"
 ACTION_KEY = "action_pred"
@@ -41,8 +44,8 @@ N_COLOR_CHANNELS = 3
 
 # config
 @dataclass
-class GR00T_N1_5_FQL_Config(PretrainedConfig):
-    model_type = "gr00t_n1_5_fql"
+class GR00T_N1_5_IQL_BoN_Config(PretrainedConfig):
+    model_type = "gr00t_n1_5_ours_bon"
     backbone_cfg: dict = field(init=False, metadata={"help": "Backbone configuration."})
 
     action_head_cfg: dict = field(init=False, metadata={"help": "Action head configuration."})
@@ -59,9 +62,9 @@ class GR00T_N1_5_FQL_Config(PretrainedConfig):
 
 
 # real model
-class GR00T_N1_5_FQL(PreTrainedModel):
+class GR00T_N1_5_IQL_BoN(PreTrainedModel):
     supports_gradient_checkpointing = True
-    config_class = GR00T_N1_5_FQL_Config
+    config_class = GR00T_N1_5_IQL_BoN_Config
     """
     we expect the backbone output to have a key 'backbone_features' with shape (batch_size, n, hidden_size)
     here n is variable and can be e.g. time, 1 or user specified
@@ -71,7 +74,7 @@ class GR00T_N1_5_FQL(PreTrainedModel):
 
     def __init__(
         self,
-        config: GR00T_N1_5_FQL_Config,
+        config: GR00T_N1_5_IQL_BoN_Config,
         local_model_path: str,
     ):
         assert isinstance(config.backbone_cfg, dict)
@@ -81,11 +84,11 @@ class GR00T_N1_5_FQL(PreTrainedModel):
         self.local_model_path = local_model_path
 
         self.backbone = EagleBackbone(**config.backbone_cfg)
-        action_head_cfg = FQLActionHeadConfig(**config.action_head_cfg)
-        self.action_head = FQLActionHead(action_head_cfg)
+        action_head_cfg = IQLActionHeadBoNConfig(**config.action_head_cfg)
+        self.action_head = IQLActionHeadBoN(action_head_cfg)
 
-        self.action_horizon = config.action_horizon
         self.critic_action_horizon = action_head_cfg.rl_config["critic_action_horizon"]
+        self.action_horizon = config.action_horizon
         self.action_dim = config.action_dim
         self.compute_dtype = config.compute_dtype
 
@@ -152,7 +155,7 @@ class GR00T_N1_5_FQL(PreTrainedModel):
             or (
                 ACTION_KEY in action_head_outputs
                 and action_head_outputs[ACTION_KEY].shape[1]
-                == self.critic_action_horizon  # FQL must output single action which is based on policy gradient
+                == self.action_horizon  # IQL neglect critic_action_horizon
                 and action_head_outputs[ACTION_KEY].shape[2] == self.action_dim
             )
         )
@@ -209,6 +212,7 @@ class GR00T_N1_5_FQL(PreTrainedModel):
     def from_pretrained(
         cls,
         pretrained_model_name_or_path: str,
+        value_cfg: Optional[dict] = None,
         critic_cfg: Optional[dict] = None,
         rl_cfg: Optional[dict] = None,
         from_gr00t_n1_5: bool = False,
@@ -219,12 +223,15 @@ class GR00T_N1_5_FQL(PreTrainedModel):
         tune_projector = kwargs.pop("tune_projector", True)
         tune_diffusion_model = kwargs.pop("tune_diffusion_model", True)
         tune_critic = kwargs.pop("tune_critic", True)
+        tune_value = kwargs.pop("tune_value", True)
 
         print(f"Loading pretrained dual brain from {pretrained_model_name_or_path}")
         print(f"Tune backbone vision tower: {tune_visual}")
         print(f"Tune backbone LLM: {tune_llm}")
         print(f"Tune action head projector: {tune_projector}")
         print(f"Tune action head DiT: {tune_diffusion_model}")
+        print(f"Tune action head critic: {tune_critic}")
+        print(f"Tune action head value: {tune_value}")
 
         if not from_gr00t_n1_5:
             # get the current model path being downloaded
@@ -243,23 +250,27 @@ class GR00T_N1_5_FQL(PreTrainedModel):
 
             pretrained_model.backbone.set_trainable_parameters(tune_visual=tune_visual, tune_llm=tune_llm)
             pretrained_model.action_head.set_trainable_parameters(
-                tune_projector=tune_projector, tune_diffusion_model=tune_diffusion_model, tune_critic=tune_critic
+                tune_projector=tune_projector,
+                tune_diffusion_model=tune_diffusion_model,
+                tune_value=tune_value,
+                tune_critic=tune_critic,
             )
             return pretrained_model
 
         else:
             pretrained_gr00t_n1_5 = GR00T_N1_5.from_pretrained(pretrained_model_name_or_path, **kwargs)
 
-            new_cfg = GR00T_N1_5_FQL_Config()
+            new_cfg = GR00T_N1_5_IQL_BoN_Config()
             pretrained_gr00t_n1_5_cfg = pretrained_gr00t_n1_5.config.to_dict()
             for key, value in pretrained_gr00t_n1_5_cfg.items():
                 if key != "action_head_cfg":
                     setattr(new_cfg, key, value)
 
             # Transfer action head config
-            action_head_cfg = FQLActionHeadConfig(**pretrained_gr00t_n1_5_cfg["action_head_cfg"])
-            action_head_cfg.critic_config = critic_cfg
-            action_head_cfg.rl_config = rl_cfg
+            action_head_cfg = IQLActionHeadBoNConfig(**pretrained_gr00t_n1_5_cfg["action_head_cfg"])
+            action_head_cfg.critic_config = CriticConfig(**critic_cfg).to_dict()
+            action_head_cfg.value_config = CriticConfig(**value_cfg).to_dict()
+            action_head_cfg.rl_config = RLConfig(**rl_cfg).to_dict()
             new_cfg.action_head_cfg = action_head_cfg.to_dict()
 
             pretrained_model = cls(
@@ -276,13 +287,15 @@ class GR00T_N1_5_FQL(PreTrainedModel):
             # Transfer action head parameters
             action_head_components = {
                 "model": "model",
-                "onestep_model": "model",  # Uses same model
                 "state_encoder": "state_encoder",
                 "action_encoder": "action_encoder",
                 "action_decoder": "action_decoder",
                 "vlln": "vlln",
                 "vl_self_attention": "vl_self_attention",
             }
+            if action_head_cfg.add_pos_embed:
+                print("Loading position embedding")
+                action_head_components["position_embedding"] = "position_embedding"
 
             with torch.no_grad():
                 full_src = pretrained_gr00t_n1_5.action_head.state_dict()
@@ -294,18 +307,20 @@ class GR00T_N1_5_FQL(PreTrainedModel):
             # Set trainable parameters according to flags
             pretrained_model.backbone.set_trainable_parameters(tune_visual=tune_visual, tune_llm=tune_llm)
             pretrained_model.action_head.set_trainable_parameters(
-                tune_projector=tune_projector, tune_diffusion_model=tune_diffusion_model, tune_critic=tune_critic
+                tune_projector=tune_projector,
+                tune_diffusion_model=tune_diffusion_model,
+                tune_critic=tune_critic,
+                tune_value=tune_value,
             )
 
             del pretrained_gr00t_n1_5
             return pretrained_model
 
     @classmethod
-    def from_pretrained_bc(
+    def from_pretrained_bc_and_critic(
         cls,
         pretrained_actor_model_name_or_path: str,
-        critic_cfg: Optional[dict] = None,
-        rl_cfg: Optional[dict] = None,
+        pretrained_critic_model_name_or_path: str,
         **kwargs,
     ):
         tune_visual = kwargs.pop("tune_visual", False)
@@ -316,7 +331,7 @@ class GR00T_N1_5_FQL(PreTrainedModel):
         tune_value = kwargs.pop("tune_value", True)
 
         print(
-            f"Loading pretrained dual brain from {pretrained_actor_model_name_or_path}"
+            f"Loading pretrained dual brain from {pretrained_actor_model_name_or_path} and {pretrained_critic_model_name_or_path}"
         )
         print(f"Tune backbone vision tower: {tune_visual}")
         print(f"Tune backbone LLM: {tune_llm}")
@@ -326,17 +341,27 @@ class GR00T_N1_5_FQL(PreTrainedModel):
         print(f"Tune action head value: {tune_value}")
 
         pretrained_actor = GR00T_N1_5.from_pretrained(pretrained_actor_model_name_or_path, **kwargs)
-        new_cfg = GR00T_N1_5_FQL_Config()
+        pretrained_critic = GR00T_N1_5_IQL_Critic.from_pretrained(pretrained_critic_model_name_or_path, **kwargs)
+
+        new_cfg = GR00T_N1_5_IQL_BoN_Config()
         pretrained_actor_cfg = pretrained_actor.config.to_dict()
         for key, value in pretrained_actor_cfg.items():
             if key != "action_head_cfg":
                 setattr(new_cfg, key, value)
 
         # Transfer action head config
-        action_head_cfg = FQLActionHeadConfig(**pretrained_actor_cfg["action_head_cfg"])
+        action_head_cfg = IQLActionHeadBoNConfig(**pretrained_actor_cfg["action_head_cfg"])
         # Cleanly update action_head_cfg with critic, value, and rl configs from pretrained_critic
-        action_head_cfg.critic_config = critic_cfg
-        action_head_cfg.rl_config = rl_cfg
+        for attr, _cls in [
+            ("critic_config", CriticConfig),
+            ("value_config", CriticConfig),
+            ("rl_config", RLConfig),
+        ]:
+            setattr(
+                action_head_cfg,
+                attr,
+                _cls(**getattr(pretrained_critic.critic_head, attr).to_dict()).to_dict(),
+            )
         new_cfg.action_head_cfg = action_head_cfg.to_dict()
 
         pretrained_model = cls(
@@ -371,18 +396,35 @@ class GR00T_N1_5_FQL(PreTrainedModel):
                 subdict = {k[len(prefix) + 1 :]: v for k, v in full_src.items() if k.startswith(prefix)}
                 getattr(pretrained_model.action_head, comp_name).load_state_dict(subdict)
 
-       # Set trainable parameters according to flags
+        critic_components = {
+            "backbone_encoder": "backbone_encoder",
+            "value": "value",
+            "critic": "critic",
+            "target_critic": "target_critic",
+        }
+
+        print("[from_pretrained_bc_and_critic] Loading critic parameters")
+        with torch.no_grad():
+            full_src = pretrained_critic.critic_head.state_dict()
+
+            for comp_name, prefix in tqdm(critic_components.items(), desc="Loading critic parameters"):
+                subdict = {k[len(prefix) + 1 :]: v for k, v in full_src.items() if k.startswith(prefix)}
+                getattr(pretrained_model.action_head, comp_name).load_state_dict(subdict)
+
+        # Set trainable parameters according to flags
         pretrained_model.backbone.set_trainable_parameters(tune_visual=tune_visual, tune_llm=tune_llm)
         pretrained_model.action_head.set_trainable_parameters(
             tune_projector=tune_projector,
             tune_diffusion_model=tune_diffusion_model,
             tune_critic=tune_critic,
+            tune_value=tune_value,
         )
 
         del pretrained_actor
+        del pretrained_critic
         return pretrained_model
 
 
 # register
-AutoConfig.register("gr00t_n1_5_fql", GR00T_N1_5_FQL_Config)
-AutoModel.register(GR00T_N1_5_FQL_Config, GR00T_N1_5_FQL)
+AutoConfig.register("gr00t_n1_5_ours_bon", GR00T_N1_5_IQL_BoN_Config)
+AutoModel.register(GR00T_N1_5_IQL_BoN_Config, GR00T_N1_5_IQL_BoN)

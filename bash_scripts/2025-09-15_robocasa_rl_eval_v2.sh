@@ -17,6 +17,7 @@ SERVER=${6:-"alin_slurm"}
 MODEL_TYPE=${7:-"ours_dual_bon"}
 ACTION_HORIZON=${8:-16}
 NUM_SAMPLES=${9:-4}
+TEMPERATURE=${10:-0.0}
 
 if [ "$SERVER" == "rlwrld" ]; then
     ROOT_PATH=/virtual_lab/sjw_alinlab/changyeon/
@@ -47,7 +48,8 @@ script="
     --n_envs ${NUM_ENVS} \
     --output_path ${OUTPUT_PATH} \
     --save_video \
-    --num_samples ${NUM_SAMPLES}
+    --num_samples ${NUM_SAMPLES} \
+    --temperature ${TEMPERATURE}
 "
 echo $script
 eval $script

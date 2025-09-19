@@ -29,6 +29,7 @@ from gr00t.data.schema import DatasetMetadata, RLDatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 from gr00t.model.gr00t_n1_fql import GR00T_N1_5_FQL
+from gr00t.model.gr00t_n1_iql_bon import GR00T_N1_5_IQL_BoN
 from gr00t.model.gr00t_n1_ours import GR00T_N1_5_Ours
 from gr00t.model.gr00t_n1_ours_awr import GR00T_N1_5_Ours_AWR
 from gr00t.model.gr00t_n1_ours_bon import GR00T_N1_5_Ours_BoN
@@ -328,7 +329,7 @@ class Gr00tPolicy(BasePolicy):
 #######################################################################################################
 
 
-class Gr00TRLPolicy(Gr00tPolicy):
+class Gr00tRLPolicy(Gr00tPolicy):
     def _load_metadata(self, exp_cfg_dir: Path):
         """Load the transforms for the model."""
         # Load metadata for normalization stats
@@ -350,7 +351,44 @@ class Gr00TRLPolicy(Gr00tPolicy):
         self.metadata = metadata
 
 
-class Gr00TFQLPolicy(Gr00TRLPolicy):
+class Gr00tFQLPolicy(Gr00tRLPolicy):
+    def __init__(
+        self,
+        model_path: str,
+        embodiment_tag: Union[str, EmbodimentTag],
+        modality_config: Dict[str, ModalityConfig],
+        modality_transform: ComposedModalityTransform,
+        denoising_steps: Optional[int] = None,
+        num_samples: Optional[int] = None,
+        temperature: Optional[int] = None,
+        device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
+    ):
+        super().__init__(
+            model_path,
+            embodiment_tag,
+            modality_config,
+            modality_transform,
+            denoising_steps,
+            device,
+        )
+
+        if num_samples is not None:
+            if (
+                hasattr(self.model, "action_head")
+                and hasattr(self.model.action_head, "rl_config")
+                and hasattr(self.model.action_head.rl_config, "num_samples")
+            ):
+                self.model.action_head.rl_config.num_samples = num_samples
+                print(f"Set number of samples to {num_samples}")
+        if temperature is not None:
+            if (
+                hasattr(self.model, "action_head")
+                and hasattr(self.model.action_head, "rl_config")
+                and hasattr(self.model.action_head.rl_config, "temperature")
+            ):
+                self.model.action_head.rl_config.temperature = temperature
+                print(f"Set evaluation temperature to {temperature}")
+
     def _load_model(self, model_path):
         model = GR00T_N1_5_FQL.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
         model.eval()
@@ -358,7 +396,7 @@ class Gr00TFQLPolicy(Gr00TRLPolicy):
         self.model = model
 
 
-class Gr00TOursPolicy(Gr00TRLPolicy):
+class Gr00tOursPolicy(Gr00tRLPolicy):
     def _load_model(self, model_path):
         model = GR00T_N1_5_Ours.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
         model.eval()
@@ -366,7 +404,7 @@ class Gr00TOursPolicy(Gr00TRLPolicy):
         self.model = model
 
 
-class Gr00TOursBoNPolicy(Gr00TRLPolicy):
+class Gr00tOursBoNPolicy(Gr00tRLPolicy):
     def _load_model(self, model_path):
         model = GR00T_N1_5_Ours_BoN.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
         model.eval()
@@ -374,7 +412,7 @@ class Gr00TOursBoNPolicy(Gr00TRLPolicy):
         self.model = model
 
 
-class Gr00TOursAWRPolicy(Gr00TRLPolicy):
+class Gr00tOursAWRPolicy(Gr00tRLPolicy):
     def _load_model(self, model_path):
         model = GR00T_N1_5_Ours_AWR.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
         model.eval()
@@ -475,6 +513,16 @@ class Gr00tOursDualBoNPolicy(Gr00tPolicy):
 class Gr00tOursDualStateBoNPolicy(Gr00tOursDualBoNPolicy):
     def _load_dual_model(self, actor_model_path, critic_model_path):
         model = GR00T_N1_5_Ours_State_BoN.from_pretrained_bc_and_critic(
+            actor_model_path, critic_model_path, torch_dtype=COMPUTE_DTYPE
+        )
+        model.eval()
+        model.to(device=self.device)  # type: ignore
+        self.model = model
+
+
+class Gr00tIQLDualBoNPolicy(Gr00tOursDualBoNPolicy):
+    def _load_dual_model(self, actor_model_path, critic_model_path):
+        model = GR00T_N1_5_IQL_BoN.from_pretrained_bc_and_critic(
             actor_model_path, critic_model_path, torch_dtype=COMPUTE_DTYPE
         )
         model.eval()

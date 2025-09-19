@@ -22,7 +22,6 @@ from torch.distributions import Beta
 from transformers import PretrainedConfig
 from transformers.feature_extraction_utils import BatchFeature
 
-from gr00t.model.critic.hlg import HLGaussLoss
 from gr00t.model.critic.networks import DoubleCritic, Value
 
 from .cross_attention_dit import DiT, SelfAttentionTransformer
@@ -55,10 +54,7 @@ class RLConfig(PretrainedConfig):
 
     feature_dim: int = field(default=64, metadata={"help": "Feature dimension for using in the critic."})
 
-    num_atoms: int = field(default=101, metadata={"help": "Number of atoms for the critic."})
-    sigma: float = field(default=0.1, metadata={"help": "Sigma for the critic."})
     expectile: float = field(default=0.9, metadata={"help": "Expectile for value loss."})
-    support_type: str = field(default="geometric", metadata={"help": "Support type for the critic."})
 
     num_samples: int = field(default=1, metadata={"help": "Number of samples for BoN sampling."})
     temperature: float = field(default=0.0, metadata={"help": "Temperature for BoN sampling."})
@@ -70,7 +66,7 @@ class RLConfig(PretrainedConfig):
 
 
 @dataclass
-class OurActionHeadBoNConfig(PretrainedConfig):
+class IQLActionHeadBoNConfig(PretrainedConfig):
     """NOTE: N1.5 uses XEmbFlowmatchingPolicyHeadConfig as action head"""
 
     add_pos_embed: bool = field(default=True, metadata={"help": "Whether to add positional embedding"})
@@ -132,13 +128,13 @@ class CategorySpecificMLP(nn.Module):
         return self.layer4(hidden, cat_ids)
 
 
-class OurActionHeadBoN(nn.Module):
-    config_class = OurActionHeadBoNConfig
+class IQLActionHeadBoN(nn.Module):
+    config_class = IQLActionHeadBoNConfig
     supports_gradient_checkpointing = True
 
     def __init__(
         self,
-        config: OurActionHeadBoNConfig,
+        config: IQLActionHeadBoNConfig,
     ):
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -182,36 +178,24 @@ class OurActionHeadBoN(nn.Module):
             input_dim=config.max_state_dim + self.feature_dim,
             hidden_size=self.value_config.hidden_dim,
             depth=self.value_config.depth,
-            output_dim=self.rl_config.num_atoms,
+            output_dim=1,
         )
 
         self.critic_config = CriticConfig(**config.critic_config)
         self.critic = DoubleCritic(
             input_dim=config.max_state_dim + self.feature_dim + self.critic_action_horizon * config.action_dim,
             hidden_dims=[self.critic_config.hidden_dim] * self.critic_config.depth,
-            output_dim=self.rl_config.num_atoms,
+            output_dim=1,
         )
 
         self.target_critic = DoubleCritic(
             input_dim=config.max_state_dim + self.feature_dim + self.critic_action_horizon * config.action_dim,
             hidden_dims=[self.critic_config.hidden_dim] * self.critic_config.depth,
-            output_dim=self.rl_config.num_atoms,
+            output_dim=1,
         )
         self.target_critic.load_state_dict(self.critic.state_dict())
         self.target_critic.eval()
-        # compute v_min and v_max according to the discount factor
-        if self.rl_config.negative_reward:
-            v_min = -1 * (1 / (1 - self.rl_config.discount2))
-            v_max = 0.0
-        else:
-            v_min = 0.0
-            v_max = 1.0
-        self.hlg = HLGaussLoss(
-            min_value=v_min,
-            max_value=v_max,
-            num_bins=self.rl_config.num_atoms,
-            sigma=self.rl_config.sigma * ((v_max - v_min) / self.rl_config.num_atoms),
-        )
+
         self.vlln = nn.LayerNorm(config.backbone_embedding_dim) if config.use_vlln else nn.Identity()
         self.vl_self_attention = (
             SelfAttentionTransformer(**config.vl_self_attention_cfg) if config.use_vlln else nn.Identity()
@@ -342,9 +326,7 @@ class OurActionHeadBoN(nn.Module):
         vl_embed_features = F.tanh(vl_embed_features)
 
         state = action_input.state.repeat(self.rl_config.num_samples, 1, 1)
-        q1_logits, q2_logits = self.critic(vl_embed_features, state, actions[:, : self.critic_action_horizon])
-        q1_probs, q2_probs = torch.softmax(q1_logits, dim=-1), torch.softmax(q2_logits, dim=-1)
-        q1, q2 = self.hlg.transform_from_probs(q1_probs), self.hlg.transform_from_probs(q2_probs)
+        q1, q2 = self.critic(vl_embed_features, state, actions[:, : self.critic_action_horizon])
         q = torch.min(q1, q2)
 
         q = q.reshape(self.rl_config.num_samples, batch_size)
@@ -364,13 +346,10 @@ class OurActionHeadBoN(nn.Module):
             selected_indices = cat_dist.sample()
         else:
             selected_indices = torch.argmax(q, dim=0)
+
         # (batch_size, action_horizon, action_dim)
+        # Using the selected action itself only by the single (state, action) pair
         selected_actions = actions[selected_indices, torch.arange(batch_size)]
-
-        # Apply critic action horizon if needed
-        if hasattr(self, "critic_action_horizon") and self.critic_action_horizon < self.config.action_horizon:
-            selected_actions = selected_actions[:, : self.critic_action_horizon]
-
         return BatchFeature(data={"action_pred": selected_actions})
 
     @property
