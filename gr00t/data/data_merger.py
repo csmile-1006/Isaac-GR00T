@@ -1256,6 +1256,40 @@ def main_cli():
     )
     parser_success.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output.")
 
+    parser_success_franka = subparsers.add_parser(
+        "success_demos_franka",
+        help="Extract only successful episodes from a dataset.",
+        description=(
+            "Extracts only successful episodes from a dataset based on episode length or reward sum.\n"
+            "Success criteria: episode length <= max_length OR reward sum > 0.\n"
+            "Creates a new dataset with only the successful episodes, renumbered sequentially."
+        ),
+    )
+    parser_success_franka.add_argument(
+        "--dataset_dir",
+        type=Path,
+        required=True,
+        help="Path to the source dataset to extract success demos from.",
+    )
+    parser_success_franka.add_argument(
+        "--output_dir",
+        type=Path,
+        required=True,
+        help="Directory where the success-only dataset will be saved.",
+    )
+    parser_success_franka.add_argument(
+        "--env_name",
+        type=str,
+        help="Environment name to get the maximum episode length.",
+    )
+    parser_success_franka.add_argument(
+        "--chunk_name",
+        type=str,
+        default=CHUNK_NAME_DEFAULT,
+        help=f"Name of the data chunk to process (default: {CHUNK_NAME_DEFAULT}).",
+    )
+    parser_success_franka.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output.")
+
     args = parser.parse_args()
     manager = DatasetManager()
 
@@ -1281,6 +1315,12 @@ def main_cli():
         manager.extract_success_demos(
             args.env_name, args.dataset_dir, args.output_dir, max_length, args.chunk_name, args.verbose
         )
+    elif args.command == "success_demos_franka":
+        max_length = 300
+        manager.extract_success_demos(
+            args.env_name, args.dataset_dir, args.output_dir, max_length, args.chunk_name, args.verbose
+        )
+ 
     else:
         parser.print_help()  # Should not be reached due to `required=True` on subparsers
 
