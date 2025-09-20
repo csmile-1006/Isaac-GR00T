@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import random
 import re
 from typing import Any, Dict, List, Optional
@@ -189,12 +190,18 @@ class GR00TTransform(InvertibleModalityTransform):
             lang = lang[0]
         text_content.append({"type": "text", "text": lang})
 
-        eagle_images = [Image.fromarray(np.transpose(v, (1, 2, 0))) for v in np_images]
-        eagle_image = [{"type": "image", "image": img} for img in eagle_images]
+        # 메모리 효율적인 이미지 처리
+        eagle_images = []
+        for i, v in enumerate(np_images):
+            # transpose 대신 메모리 효율적인 처리
+            img_array = np.transpose(v, (1, 2, 0))
+            img = Image.fromarray(img_array)
+            eagle_images.append({"type": "image", "image": img})
+       
         eagle_conversation = [
             {
                 "role": "user",
-                "content": eagle_image + text_content,
+                "content": eagle_images + text_content,
             }
         ]
 
@@ -335,14 +342,31 @@ class GR00TTransform(InvertibleModalityTransform):
                 for key in action_and_mask_keys
             ), f"Shape mismatch: {[(key, transformed_data[key].shape) for key in action_and_mask_keys]}"
 
+        # 중간 변수들 해제
+        del images, batch_data, vlm_outputs
+        gc.collect()
+        
         return transformed_data
 
     def apply_batch(self, data: dict, batch_size: int) -> dict:
-        # Split on batch dimension.
-        data_split = [tree.map_structure(lambda x: x[i], data) for i in range(batch_size)]
-        # Process each element.
-        data_split_processed = [self.apply_single(elem) for elem in data_split]
-        return collate(data_split_processed, self.eagle_processor)
+        # 메모리 효율적인 배치 처리
+        processed_batch = []
+        
+        for i in range(batch_size):
+            # 각 요소를 개별적으로 처리하고 즉시 해제
+            elem = tree.map_structure(lambda x: x[i], data)
+            processed_elem = self.apply_single(elem)
+            processed_batch.append(processed_elem)
+            
+            # 중간 변수들 해제
+            del elem
+            if i % 10 == 0:  # 주기적으로 가비지 컬렉션
+                gc.collect()
+        
+        result = collate(processed_batch, self.eagle_processor)
+        del processed_batch  # 명시적 해제
+        gc.collect()
+        return result
 
     def apply(self, data: dict) -> dict:
         is_batched, batch_size = self.check_keys_and_batch_size(data)
@@ -386,12 +410,23 @@ class GR00TRLTransform(GR00TTransform):
             lang = lang[0]
         text_content.append({"type": "text", "text": lang})
 
-        eagle_images = [Image.fromarray(np.transpose(v, (1, 2, 0))) for v in np_images]
-        eagle_image = [{"type": "image", "image": img} for img in eagle_images]
+        # 메모리 효율적인 이미지 처리
+        eagle_images = []
+        for i, v in enumerate(np_images):
+            # transpose 대신 메모리 효율적인 처리
+            img_array = np.transpose(v, (1, 2, 0))
+            img = Image.fromarray(img_array)
+            eagle_images.append({"type": "image", "image": img})
+            
+            # 즉시 중간 배열 해제
+            del img_array
+            if i % 5 == 0:  # 주기적으로 가비지 컬렉션
+                gc.collect()
+        
         eagle_conversation = [
             {
                 "role": "user",
-                "content": eagle_image + text_content,
+                "content": eagle_images + text_content,
             }
         ]
 
@@ -400,7 +435,11 @@ class GR00TRLTransform(GR00TTransform):
                 eagle_conversation, tokenize=False, add_generation_prompt=True
             )
         ]
-        image_inputs, video_inputs = self.eagle_processor.process_vision_info(eagle_conversation)
+        
+        # VLM 처리 시 메모리 최적화
+        with torch.no_grad():
+            image_inputs, video_inputs = self.eagle_processor.process_vision_info(eagle_conversation)
+        
         eagle_content = {
             "image_inputs": image_inputs,
             "video_inputs": video_inputs,
@@ -409,6 +448,11 @@ class GR00TRLTransform(GR00TTransform):
         inputs = {}
         key = "eagle_content" if key == "images" else "next_eagle_content"
         inputs[key] = eagle_content
+        
+        # 중간 변수들 해제
+        del np_images, eagle_images
+        gc.collect()
+        
         return inputs
 
     def _prepare_video(self, data: dict, key="video"):
@@ -506,6 +550,10 @@ class GR00TRLTransform(GR00TTransform):
 
         transformed_data["reward"] = data["reward.next.reward"]
         transformed_data["done"] = data["done.next.done"]
+
+        # 중간 변수들 해제
+        del images, next_images, batch_data, next_batch_data, vlm_outputs, next_vlm_outputs
+        gc.collect()
 
         return transformed_data
 

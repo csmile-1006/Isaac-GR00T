@@ -109,7 +109,7 @@ class ArgsConfig:
     lora_full_model: bool = False
     """Whether to use the full model for LORA. If False, only the action head will be trained."""
 
-    dataloader_num_workers: int = 8
+    dataloader_num_workers: int = 4
     """Number of workers for data loading."""
 
     report_to: Literal["wandb", "tensorboard"] = "wandb"

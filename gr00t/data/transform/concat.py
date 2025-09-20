@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 from typing import Optional
 
 import numpy as np
@@ -113,10 +114,17 @@ class ConcatTransform(BaseConcatTransform):
                 item in video_keys for item in self.video_concat_order
             ), f"keys in video_concat_order are misspecified, \n{video_keys=}, \n{self.video_concat_order=}"
 
-            unsqueezed_videos = [
-                np.expand_dims(data.pop(key), axis=-4) for key in self.video_concat_order
-            ]
-            data["video"] = np.concatenate(unsqueezed_videos, axis=-4)  # [..., V, H, W, C]
+            # 메모리 효율적인 concat
+            video_arrays = []
+            for key in self.video_concat_order:
+                video_array = np.expand_dims(data.pop(key), axis=-4)
+                video_arrays.append(video_array)
+            
+            data["video"] = np.concatenate(video_arrays, axis=-4)  # [..., V, H, W, C]
+            
+            # 중간 배열들 해제
+            del video_arrays
+            gc.collect()
 
         if "state" in grouped_keys:
             state_keys = grouped_keys["state"]
@@ -125,6 +133,7 @@ class ConcatTransform(BaseConcatTransform):
                 item in state_keys for item in self.state_concat_order
             ), f"keys in state_concat_order are misspecified, \n{state_keys=}, \n{self.state_concat_order=}"
 
+            # 검증
             for key in self.state_concat_order:
                 target_shapes = [self.state_dims[key]]
                 if self.is_rotation_key(key):
@@ -132,20 +141,39 @@ class ConcatTransform(BaseConcatTransform):
                 target_shapes.append(self.state_dims[key] * 2)  # Allow for sin-cos transform
                 assert data[key].shape[-1] in target_shapes, f"State dim mismatch for {key=}"
 
-            data["state"] = torch.cat([data.pop(key) for key in self.state_concat_order], dim=-1)
+            # 메모리 효율적인 concat
+            state_tensors = []
+            for key in self.state_concat_order:
+                state_tensors.append(data.pop(key))
+            
+            data["state"] = torch.cat(state_tensors, dim=-1)
+            
+            # 중간 텐서들 해제
+            del state_tensors
+            gc.collect()
 
         if "action" in grouped_keys:
             action_keys = grouped_keys["action"]
             assert self.action_concat_order is not None
             assert set(self.action_concat_order) == set(action_keys)
 
+            # 검증
             for key in self.action_concat_order:
                 target_shapes = [self.action_dims[key]]
                 if self.is_rotation_key(key):
                     target_shapes.append(3)  # Allow for axis angle
                 assert data[key].shape[-1] in target_shapes, f"Action dim mismatch for {key=}"
 
-            data["action"] = torch.cat([data.pop(key) for key in self.action_concat_order], dim=-1)
+            # 메모리 효율적인 concat
+            action_tensors = []
+            for key in self.action_concat_order:
+                action_tensors.append(data.pop(key))
+            
+            data["action"] = torch.cat(action_tensors, dim=-1)
+            
+            # 중간 텐서들 해제
+            del action_tensors
+            gc.collect()
 
         return data
 
@@ -233,8 +261,17 @@ class RLConcatTransform(ConcatTransform):
                 f"keys in video_concat_order are misspecified, \n{video_keys=}, \n{self.video_concat_order=}"
             )
 
-            unsqueezed_videos = [np.expand_dims(data.pop(key), axis=-4) for key in self.video_concat_order]
-            data["video"] = np.concatenate(unsqueezed_videos, axis=-4)  # [..., V, H, W, C]
+            # 메모리 효율적인 concat
+            video_arrays = []
+            for key in self.video_concat_order:
+                video_array = np.expand_dims(data.pop(key), axis=-4)
+                video_arrays.append(video_array)
+            
+            data["video"] = np.concatenate(video_arrays, axis=-4)  # [..., V, H, W, C]
+            
+            # 중간 배열들 해제
+            del video_arrays
+            gc.collect()
 
         if "state" in grouped_keys:
             state_keys = grouped_keys["state"]
@@ -243,6 +280,7 @@ class RLConcatTransform(ConcatTransform):
                 f"keys in state_concat_order are misspecified, \n{state_keys=}, \n{self.state_concat_order=}"
             )
 
+            # 검증
             for key in self.state_concat_order:
                 target_shapes = [self.state_dims[key]]
                 if self.is_rotation_key(key):
@@ -250,20 +288,39 @@ class RLConcatTransform(ConcatTransform):
                 target_shapes.append(self.state_dims[key] * 2)  # Allow for sin-cos transform
                 assert data[key].shape[-1] in target_shapes, f"State dim mismatch for {key=}"
 
-            data["state"] = torch.cat([data.pop(key) for key in self.state_concat_order], dim=-1)
+            # 메모리 효율적인 concat
+            state_tensors = []
+            for key in self.state_concat_order:
+                state_tensors.append(data.pop(key))
+            
+            data["state"] = torch.cat(state_tensors, dim=-1)
+            
+            # 중간 텐서들 해제
+            del state_tensors
+            gc.collect()
 
         if "action" in grouped_keys:
             action_keys = grouped_keys["action"]
             assert self.action_concat_order is not None
             assert set(self.action_concat_order) == set(action_keys)
 
+            # 검증
             for key in self.action_concat_order:
                 target_shapes = [self.action_dims[key]]
                 if self.is_rotation_key(key):
                     target_shapes.append(3)  # Allow for axis angle
                 assert data[key].shape[-1] in target_shapes, f"Action dim mismatch for {key=}"
 
-            data["action"] = torch.cat([data.pop(key) for key in self.action_concat_order], dim=-1)
+            # 메모리 효율적인 concat
+            action_tensors = []
+            for key in self.action_concat_order:
+                action_tensors.append(data.pop(key))
+            
+            data["action"] = torch.cat(action_tensors, dim=-1)
+            
+            # 중간 텐서들 해제
+            del action_tensors
+            gc.collect()
 
         if "next_video" in grouped_keys:
             assert self.next_video_concat_order is not None
@@ -272,10 +329,17 @@ class RLConcatTransform(ConcatTransform):
                 item in next_video_keys for item in self.next_video_concat_order
             ), "Keys in next_video_concat_order are misspecified"
 
-            unsqueezed_videos = [
-                np.expand_dims(data.pop(key), axis=-4) for key in self.next_video_concat_order
-            ]
-            data["next_video"] = np.concatenate(unsqueezed_videos, axis=-4)  # [..., V, H, W, C]
+            # 메모리 효율적인 concat
+            next_video_arrays = []
+            for key in self.next_video_concat_order:
+                video_array = np.expand_dims(data.pop(key), axis=-4)
+                next_video_arrays.append(video_array)
+            
+            data["next_video"] = np.concatenate(next_video_arrays, axis=-4)  # [..., V, H, W, C]
+            
+            # 중간 배열들 해제
+            del next_video_arrays
+            gc.collect()
 
         if "next_state" in data:
             assert self.next_state_concat_order is not None
@@ -284,17 +348,24 @@ class RLConcatTransform(ConcatTransform):
                 item in next_state_keys for item in self.next_state_concat_order
             ), "Keys in next_state_concat_order are misspecified"
 
-            tensors_to_concat = []
+            # 검증
             for key in self.next_state_concat_order:
                 target_shapes = [self.next_state_dims[key]]
                 if self.is_rotation_key(key):
                     target_shapes.append(6)  # Allow for rotation_6d
                 target_shapes.append(self.next_state_dims[key] * 2)  # Allow for sin-cos transform
-
                 assert data[key].shape[-1] in target_shapes, f"Next state dim mismatch for {key=}"
-                tensors_to_concat.append(data.pop(key))
 
-            data["next_state"] = torch.cat(tensors_to_concat, dim=-1)
+            # 메모리 효율적인 concat
+            next_state_tensors = []
+            for key in self.next_state_concat_order:
+                next_state_tensors.append(data.pop(key))
+
+            data["next_state"] = torch.cat(next_state_tensors, dim=-1)
+            
+            # 중간 텐서들 해제
+            del next_state_tensors
+            gc.collect()
 
         return data
 
@@ -355,7 +426,7 @@ class RLStateConcatTransform(RLConcatTransform):
                 else:
                     assert all(item in available_keys for item in concat_order), f"Keys in {modality_name}_concat_order are misspecified"
 
-                tensors_to_concat = []
+                # 검증
                 for key in concat_order:
                     target_shapes = [dims_map[key]]
                     if self.is_rotation_key(key):
@@ -368,8 +439,16 @@ class RLStateConcatTransform(RLConcatTransform):
                         target_shapes.append(dims_map[key] * 2)  # Allow for sin-cos transform
 
                     assert data[key].shape[-1] in target_shapes, f"{modality_name} dim mismatch for {key=}"
+
+                # 메모리 효율적인 concat
+                tensors_to_concat = []
+                for key in concat_order:
                     tensors_to_concat.append(data.pop(key))
 
                 data[modality_name] = torch.cat(tensors_to_concat, dim=-1)
+                
+                # 중간 텐서들 해제
+                del tensors_to_concat
+                gc.collect()
 
         return data
