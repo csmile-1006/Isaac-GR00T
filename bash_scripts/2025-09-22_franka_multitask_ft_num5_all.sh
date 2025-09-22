@@ -43,7 +43,6 @@ script="
         --batch-size ${BATCH_SIZE} \
         --save-steps 10000 \
         --run-name FT_bs${TOTAL_BATCH_SIZE}_step${STEPS}_demo${NUM_DEMOS} \
-        --video_backend torchvision_av
 "
 
 echo $script
