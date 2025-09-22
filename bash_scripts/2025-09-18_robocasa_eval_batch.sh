@@ -4,27 +4,32 @@
 #SBATCH --error=/home/changyeon/slurm-logs/mt_eval_gr00tn15/%A_%a.err   # log                                                                                                   
 #SBATCH --nodes=1            # 노드 1개 사용                                                                                                                 
 #SBATCH --gres=gpu:a6000:1   # GPU 1개 사용                                                                                                                  
-#SBATCH --array=0-14
+#SBATCH --array=0-4
 #SBATCH --cpus-per-gpu=16     # GPU당 CPU 사용 수                                                                                                             
 #SBATCH --mem-per-gpu=128G    # GPU당 mem 사용량                                                                                                              
 #SBATCH --time=72:00:00      # 최대 48시간 실행
 
 TASK_NAMES=(
-    "CoffeeSetupMug,0"
-    "PnPCabToCounter,0"
-    "PnPMicrowaveToCounter,0"
-    "TurnOffStove,0"
-    "PnPCounterToMicrowave,0"
-    "CoffeeSetupMug,42"
-    "PnPCabToCounter,42"
-    "PnPMicrowaveToCounter,42"
-    "TurnOffStove,42"
-    "PnPCounterToMicrowave,42"
-    "CoffeeSetupMug,123"
-    "PnPCabToCounter,123"
-    "PnPMicrowaveToCounter,123"
-    "TurnOffStove,123"
-    "PnPCounterToMicrowave,123"
+    # "CoffeeSetupMug,0"
+    # "PnPCabToCounter,0"
+    # "PnPMicrowaveToCounter,0"
+    # "TurnOffStove,0"
+    # "PnPCounterToMicrowave,0"
+    # "CoffeeSetupMug,42"
+    # "PnPCabToCounter,42"
+    # "PnPMicrowaveToCounter,42"
+    # "TurnOffStove,42"
+    # "PnPCounterToMicrowave,42"
+    # "CoffeeSetupMug,123"
+    # "PnPCabToCounter,123"
+    # "PnPMicrowaveToCounter,123"
+    # "TurnOffStove,123"
+    # "PnPCounterToMicrowave,123"
+    "CoffeeSetupMug,3407"
+    "PnPCabToCounter,3407"
+    "PnPMicrowaveToCounter,3407"
+    "TurnOffStove,3407"
+    "PnPCounterToMicrowave,3407"
 )
 TASK_NAME=${TASK_NAMES[$SLURM_ARRAY_TASK_ID]%,*}
 SEED=${TASK_NAMES[$SLURM_ARRAY_TASK_ID]#*,}

@@ -39,10 +39,6 @@ from gr00t.eval.wrappers.robocasa_wrapper import load_robocasa_gym_env
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.model.policy import (
     BasePolicy,
-    Gr00TFQLPolicy,
-    Gr00TOursAWRPolicy,
-    Gr00TOursBoNPolicy,
-    Gr00TOursPolicy,
     Gr00tPolicy,
 )
 
@@ -250,7 +246,7 @@ if __name__ == "__main__":
         "--model_type",
         type=str,
         default="original",
-        choices=["fql", "ours", "original", "ours_bon", "ours_awr"],
+        choices=["original"],
         help="Type of model to use.",
     )
     parser.add_argument(
@@ -378,44 +374,8 @@ if __name__ == "__main__":
         modality_config = data_config.modality_config()
         modality_transform = data_config.transform()
 
-        if args.model_type == "fql":
-            policy = Gr00TFQLPolicy(
-                model_path=args.model_path,
-                modality_config=modality_config,
-                modality_transform=modality_transform,
-                embodiment_tag=args.embodiment_tag,
-                denoising_steps=args.denoising_steps,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-        elif args.model_type == "ours":
-            policy = Gr00TOursPolicy(
-                model_path=args.model_path,
-                modality_config=modality_config,
-                modality_transform=modality_transform,
-                embodiment_tag=args.embodiment_tag,
-                denoising_steps=args.denoising_steps,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-        elif args.model_type == "original":
+        if args.model_type == "original":
             policy = Gr00tPolicy(
-                model_path=args.model_path,
-                modality_config=modality_config,
-                modality_transform=modality_transform,
-                embodiment_tag=args.embodiment_tag,
-                denoising_steps=args.denoising_steps,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-        elif args.model_type == "ours_bon":
-            policy = Gr00TOursBoNPolicy(
-                model_path=args.model_path,
-                modality_config=modality_config,
-                modality_transform=modality_transform,
-                embodiment_tag=args.embodiment_tag,
-                denoising_steps=args.denoising_steps,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-        elif args.model_type == "ours_awr":
-            policy = Gr00TOursAWRPolicy(
                 model_path=args.model_path,
                 modality_config=modality_config,
                 modality_transform=modality_transform,
