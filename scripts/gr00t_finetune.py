@@ -22,6 +22,7 @@ from typing import List, Literal
 
 import torch
 import tyro
+import wandb
 from transformers import TrainingArguments
 
 from gr00t.data.dataset import LeRobotMixtureDataset, LeRobotSingleDataset
@@ -133,6 +134,9 @@ class ArgsConfig:
     # Mixture dataset parameters
     balance_trajectory_weights: bool = True
     """Used in LeRobotMixtureDataset. If True, sample trajectories within a dataset weighted by their length; otherwise, equal weighting."""
+
+    run_name: str = "gr00t_finetune"
+    """Name of the run."""
 
 
 #####################################################################################
@@ -345,7 +349,7 @@ def main(config: ArgsConfig):
     # 2.1 modify training args
     training_args = TrainingArguments(
         output_dir=config.output_dir,
-        run_name=None,
+        run_name=config.run_name,
         remove_unused_columns=False,
         deepspeed="",
         gradient_checkpointing=False,
@@ -412,6 +416,14 @@ if __name__ == "__main__":
     ), f"Number of GPUs requested ({config.num_gpus}) is greater than the available GPUs ({available_gpus})"
     assert config.num_gpus > 0, "Number of GPUs must be greater than 0"
     print(f"Using {config.num_gpus} GPUs")
+
+    os.environ["WANDB_PROJECT"] = "gr00t-gr1-finetune"
+    wandb.init(
+        project=os.environ["WANDB_PROJECT"],
+        name=config.run_name,
+        config=vars(config),
+        settings=wandb.Settings(_disable_stats=True),
+    )
 
     if config.num_gpus == 1:
         # Single GPU mode - set CUDA_VISIBLE_DEVICES=0
