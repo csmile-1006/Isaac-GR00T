@@ -76,7 +76,7 @@ bash ./bash_scripts/eval_deas.sh 0 ${CKPT_PATH} ${CRITIC_CKPT_PATH} ${SEED} 5 50
 # Acknowledgement
 This code is mainly built upon [Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T)  and [RoboCasa](https://github.com/robocasa/robocasa) repositories.
 
-# BiBTex
+# Citation
 ```bibtex
 @article{kim2025deas,
     title={DEAS: DEtached value learning with Action Sequence for Scalable Offline RL},
