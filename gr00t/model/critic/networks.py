@@ -62,9 +62,7 @@ class ResidualBlock(torch.nn.Module):
 
 
 class BRONet(torch.nn.Module):
-    def __init__(
-        self, input_dim: int, hidden_size: int, depth: int, add_final_layer: bool = True, output_dim: int = 1
-    ):
+    def __init__(self, input_dim: int, hidden_size: int, depth: int, add_final_layer: bool = True, output_dim: int = 1):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_size = hidden_size
@@ -230,9 +228,7 @@ class StateDoubleCritic(nn.Module):
 
     def forward(self, states: torch.Tensor, actions: torch.Tensor):
         B = states.shape[0]
-        state_action = torch.cat(
-            [states.reshape(B, -1), actions.reshape(B, -1)], dim=1
-        )
+        state_action = torch.cat([states.reshape(B, -1), actions.reshape(B, -1)], dim=1)
         q1 = self.Q1(state_action)
         q2 = self.Q2(state_action)
 
@@ -241,4 +237,3 @@ class StateDoubleCritic(nn.Module):
         if q2.shape[-1] == 1:
             q2 = q2.squeeze(-1)
         return q1, q2
-

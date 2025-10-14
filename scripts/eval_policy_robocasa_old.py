@@ -40,7 +40,6 @@ from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.model.policy import (
     BasePolicy,
     Gr00tPolicy,
-    Gr00tDEASDualBoNPolicy,
 )
 
 warnings.simplefilter("ignore", category=FutureWarning)
@@ -238,22 +237,16 @@ if __name__ == "__main__":
     )
     ## When using a model instead of client-server mode.
     parser.add_argument(
-        "--actor_model_path",
+        "--model_path",
         type=str,
         default=None,
-        help="Path to the model checkpoint directory, this will disable client server mode.",
-    )
-    parser.add_argument(
-        "--critic_model_path",
-        type=str,
-        default=None,
-        help="[Optional] Path to the critic model checkpoint directory.",
+        help="[Optional] Path to the model checkpoint directory, this will disable client server mode.",
     )
     parser.add_argument(
         "--model_type",
         type=str,
-        default="deas",
-        choices=["deas", "gr00tn15"],
+        default="original",
+        choices=["original"],
         help="Type of model to use.",
     )
     parser.add_argument(
@@ -261,18 +254,6 @@ if __name__ == "__main__":
         type=int,
         help="Number of denoising steps if model_path is provided",
         default=4,
-    )
-    parser.add_argument(
-        "--num_samples",
-        type=int,
-        default=4,
-        help="Number of samples for BoN sampling.",
-    )
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=0.0,
-        help="Temperature for BoN sampling.",
     )
 
     # robocasa env and evaluation parameters
@@ -383,36 +364,19 @@ if __name__ == "__main__":
     args = parser.parse_args()
     control_seed(args.seed)
 
-    assert args.data_config in ["single_panda_gripper_rl_inference"], (
-        "Only single panda gripper RL inference data config is supported for now"
-    )
-    data_config = DATA_CONFIG_MAP[args.data_config](AS=args.action_horizon)
+    data_config = DATA_CONFIG_MAP[args.data_config]
+    if args.model_type in ["fql", "ours", "ours_bon", "ours_awr"]:
+        data_config = data_config(AS=args.action_horizon)
 
-    if args.critic_model_path is not None:
+    if args.model_path is not None:
         import torch
 
         modality_config = data_config.modality_config()
         modality_transform = data_config.transform()
-        if args.model_type == "deas":
-            policy = Gr00tDEASDualBoNPolicy(
-                actor_model_path=args.actor_model_path,
-                critic_model_path=args.critic_model_path,
-                modality_config=modality_config,
-                modality_transform=modality_transform,
-                embodiment_tag=args.embodiment_tag,
-                denoising_steps=args.denoising_steps,
-                num_samples=args.num_samples,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-    elif args.actor_model_path is not None:
-        import torch
 
-        modality_config = data_config.modality_config()
-        modality_transform = data_config.transform()
- 
-        if args.model_type == "gr00tn15":
+        if args.model_type == "original":
             policy = Gr00tPolicy(
-                model_path=args.actor_model_path,
+                model_path=args.model_path,
                 modality_config=modality_config,
                 modality_transform=modality_transform,
                 embodiment_tag=args.embodiment_tag,
@@ -470,7 +434,7 @@ if __name__ == "__main__":
     # Grab reference to controller config and convert it to json-encoded string
     env_info = json.dumps(config)
 
-    if args.critic_model_path is not None:
+    if args.model_path is not None and args.model_type in ["fql", "ours", "ours_bon", "ours_awr"]:
         assert args.action_horizon == policy.model.critic_action_horizon, (
             f"Action horizon mismatch: {args.action_horizon} != {policy.model.critic_action_horizon}"
         )
@@ -578,7 +542,6 @@ if __name__ == "__main__":
         f"Expected at least {args.num_episodes} episodes, got {len(episode_successes)}"
     )
 
-    os.makedirs(args.output_path if args.output_path else "./", exist_ok=True)
     csv_path = Path(args.output_path if args.output_path else "./") / "eval.csv"
     with open(csv_path, mode="w", newline="") as csvfile:
         writer = csv.writer(csvfile)

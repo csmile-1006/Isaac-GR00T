@@ -220,7 +220,7 @@ class RoboCasaWrapper(gym.Wrapper):
         return self.convert_observation(obs), info
 
     def render(self, mode="rgb_array"):
-        return self.env.unwrapped.sim.render(camera_name="robot0_agentview_center", height=512, width=512)[::-1]
+        return self.env.unwrapped.sim.render(camera_name="robot0_agentview_center", height=360, width=640)[::-1]
 
     def is_success(self):
         """

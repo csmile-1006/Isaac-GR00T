@@ -25,15 +25,10 @@ from huggingface_hub.errors import HFValidationError, RepositoryNotFoundError
 
 from gr00t.data.dataset import ModalityConfig
 from gr00t.data.embodiment_tags import EmbodimentTag
-from gr00t.data.schema import DatasetMetadata, RLDatasetMetadata
+from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1_5
-from gr00t.model.gr00t_n1_fql import GR00T_N1_5_FQL
-from gr00t.model.gr00t_n1_iql_bon import GR00T_N1_5_IQL_BoN
-from gr00t.model.gr00t_n1_ours import GR00T_N1_5_Ours
-from gr00t.model.gr00t_n1_ours_awr import GR00T_N1_5_Ours_AWR
-from gr00t.model.gr00t_n1_ours_bon import GR00T_N1_5_Ours_BoN
-from gr00t.model.gr00t_n1_ours_state_bon import GR00T_N1_5_Ours_State_BoN
+from gr00t.model.gr00t_n1_deas_bon import GR00T_N1_5_DEAS_BoN
 
 COMPUTE_DTYPE = torch.bfloat16
 
@@ -326,101 +321,10 @@ class Gr00tPolicy(BasePolicy):
             assert (delta_indices[1] - delta_indices[0]) > 0, f"{delta_indices=}"
 
 
-#######################################################################################################
+###################################################################################################
 
 
-class Gr00tRLPolicy(Gr00tPolicy):
-    def _load_metadata(self, exp_cfg_dir: Path):
-        """Load the transforms for the model."""
-        # Load metadata for normalization stats
-        metadata_path = exp_cfg_dir / "metadata.json"
-        with open(metadata_path, "r") as f:
-            metadatas = json.load(f)
-
-        # Get metadata for the specific embodiment
-        metadata_dict = metadatas.get(self.embodiment_tag.value)
-        if metadata_dict is None:
-            raise ValueError(
-                f"No metadata found for embodiment tag: {self.embodiment_tag.value}",
-                f"make sure the metadata.json file is present at {metadata_path}",
-            )
-
-        metadata = RLDatasetMetadata.model_validate(metadata_dict)
-
-        self._modality_transform.set_metadata(metadata)
-        self.metadata = metadata
-
-
-class Gr00tFQLPolicy(Gr00tRLPolicy):
-    def __init__(
-        self,
-        model_path: str,
-        embodiment_tag: Union[str, EmbodimentTag],
-        modality_config: Dict[str, ModalityConfig],
-        modality_transform: ComposedModalityTransform,
-        denoising_steps: Optional[int] = None,
-        num_samples: Optional[int] = None,
-        temperature: Optional[int] = None,
-        device: Union[int, str] = "cuda" if torch.cuda.is_available() else "cpu",
-    ):
-        super().__init__(
-            model_path,
-            embodiment_tag,
-            modality_config,
-            modality_transform,
-            denoising_steps,
-            device,
-        )
-
-        if num_samples is not None:
-            if (
-                hasattr(self.model, "action_head")
-                and hasattr(self.model.action_head, "rl_config")
-                and hasattr(self.model.action_head.rl_config, "num_samples")
-            ):
-                self.model.action_head.rl_config.num_samples = num_samples
-                print(f"Set number of samples to {num_samples}")
-        if temperature is not None:
-            if (
-                hasattr(self.model, "action_head")
-                and hasattr(self.model.action_head, "rl_config")
-                and hasattr(self.model.action_head.rl_config, "temperature")
-            ):
-                self.model.action_head.rl_config.temperature = temperature
-                print(f"Set evaluation temperature to {temperature}")
-
-    def _load_model(self, model_path):
-        model = GR00T_N1_5_FQL.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
-        model.eval()
-        model.to(device=self.device)  # type: ignore
-        self.model = model
-
-
-class Gr00tOursPolicy(Gr00tRLPolicy):
-    def _load_model(self, model_path):
-        model = GR00T_N1_5_Ours.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
-        model.eval()
-        model.to(device=self.device)  # type: ignore
-        self.model = model
-
-
-class Gr00tOursBoNPolicy(Gr00tRLPolicy):
-    def _load_model(self, model_path):
-        model = GR00T_N1_5_Ours_BoN.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
-        model.eval()
-        model.to(device=self.device)  # type: ignore
-        self.model = model
-
-
-class Gr00tOursAWRPolicy(Gr00tRLPolicy):
-    def _load_model(self, model_path):
-        model = GR00T_N1_5_Ours_AWR.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
-        model.eval()
-        model.to(device=self.device)  # type: ignore
-        self.model = model
-
-
-class Gr00tOursDualBoNPolicy(Gr00tPolicy):
+class Gr00tDEASDualBoNPolicy(Gr00tPolicy):
     """
     A wrapper for Gr00t model checkpoints that handles loading the model, applying transforms,
     making predictions, and unapplying transforms. This loads some custom configs, stats
@@ -502,27 +406,7 @@ class Gr00tOursDualBoNPolicy(Gr00tPolicy):
                 print(f"Set evaluation temperature to {temperature}")
 
     def _load_dual_model(self, actor_model_path, critic_model_path):
-        model = GR00T_N1_5_Ours_BoN.from_pretrained_bc_and_critic(
-            actor_model_path, critic_model_path, torch_dtype=COMPUTE_DTYPE
-        )
-        model.eval()
-        model.to(device=self.device)  # type: ignore
-        self.model = model
-
-
-class Gr00tOursDualStateBoNPolicy(Gr00tOursDualBoNPolicy):
-    def _load_dual_model(self, actor_model_path, critic_model_path):
-        model = GR00T_N1_5_Ours_State_BoN.from_pretrained_bc_and_critic(
-            actor_model_path, critic_model_path, torch_dtype=COMPUTE_DTYPE
-        )
-        model.eval()
-        model.to(device=self.device)  # type: ignore
-        self.model = model
-
-
-class Gr00tIQLDualBoNPolicy(Gr00tOursDualBoNPolicy):
-    def _load_dual_model(self, actor_model_path, critic_model_path):
-        model = GR00T_N1_5_IQL_BoN.from_pretrained_bc_and_critic(
+        model = GR00T_N1_5_DEAS_BoN.from_pretrained_bc_and_critic(
             actor_model_path, critic_model_path, torch_dtype=COMPUTE_DTYPE
         )
         model.eval()
