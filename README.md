@@ -1,4 +1,4 @@
-# Isaac-GR00T + DEAS
+# Isaac-GR00T + DEAS + RoboCasa
 <div align="left">
   <p style="font-size: 1.2em;">
     <a href="https://changyeon.site/deas"><strong>Website</strong></a> | 
@@ -70,7 +70,7 @@ bash ./bash_scripts/eval_deas.sh 0 ${CKPT_PATH} ${CRITIC_CKPT_PATH} ${SEED} 5 50
 
 
 # Acknowledgement
-This code is mainly built upon [Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) repositories.
+This code is mainly built upon [Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T)  and [RoboCasa](https://github.com/robocasa/robocasa) repositories.
 
 # BiBTex
 ```bibtex
