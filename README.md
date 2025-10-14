@@ -9,8 +9,6 @@
   This repository provides the re-implementation of DEAS with Isaac GR00T N1.5 introduced in: <br/>
   <a href=https://arxiv.org/abs/2510.07730>DEAS: DEtached value learning with Action Sequence for Scalable Offline RL</a><br/>
   <a href=https://changyeon.site>Changyeon Kim</a>, Haeone Lee, <a href=https://younggyo.me>Younggyo Seo</a>, <a href=https://sites.google.com/view/kiminlee>Kimin Lee</a>, <a href=https://yukezhu.me>Yuke Zhu</a><br/>
-  <a>Preprint</a><br/>
-  
 </div>
 
 ## Installation Guide
@@ -63,7 +61,7 @@ bash ./bash_scripts/train_deas_critic.sh 30000 16 0.9 0.99 0.7 ${NUM_GPUS} ${BAT
 ```
 
 ## 4. Evaluation
-set `CKPT_PATH` to be the path of the GR00T N1.5 trained in Section 2.
+set `CKPT_PATH` to be the path of the GR00T N1.5 trained in Section 2.\
 set `CRITIC_CKPT_PATH` to be the path of the critic trained in Section 3.
 
 ```bash
