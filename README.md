@@ -1,5 +1,6 @@
-# Isaac-GR00T + DEAS + RoboCasa
-<div align="left">
+<div align="center">
+  <h1> Isaac-GR00T + DEAS + RoboCasa </h1>
+  Implementation of VLA experiments used in <b>DEAS: DEtached value learning with Action Sequence for Scalable Offline RL</b>.
   <p style="font-size: 1.2em;">
     <a href="https://changyeon.site/deas"><strong>Website</strong></a> | 
     <a href="https://huggingface.co/datasets/changyeon/deas_robocasa"><strong>Dataset</strong></a> |
