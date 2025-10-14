@@ -1,11 +1,16 @@
-<div align="center">
-  <h1> Isaac-GR00T + DEAS + RoboCasa </h1>
-  Implementation of VLA experiments used in <b>DEAS: DEtached value learning with Action Sequence for Scalable Offline RL</b>.
+<div align="left">
+  <h1> Isaac-GR00T + <a href=https://arxiv.org/abs/2510.07730>DEAS</a> + RoboCasa </h1>
   <p style="font-size: 1.2em;">
     <a href="https://changyeon.site/deas"><strong>Website</strong></a> | 
     <a href="https://huggingface.co/datasets/changyeon/deas_robocasa"><strong>Dataset</strong></a> |
     <a href="https://arxiv.org/abs/2510.07730"><strong>Paper</strong></a>
   </p>
+  
+  This repository provides the re-implementation of DEAS with Isaac GR00T N1.5 introduced in: <br/>
+  <a href=https://arxiv.org/abs/2510.07730>DEAS: DEtached value learning with Action Sequence for Scalable Offline RL</a><br/>
+  <a href=https://changyeon.site>Changyeon Kim</a>, Haeone Lee, <a href=https://younggyo.me>Younggyo Seo</a>, <a href=https://sites.google.com/view/kiminlee>Kimin Lee</a>, <a href=https://yukezhu.me>Yuke Zhu</a><br/>
+  <a>Preprint</a><br/>
+  
 </div>
 
 ## Installation Guide
