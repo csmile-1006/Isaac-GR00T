@@ -4,6 +4,7 @@
 
 SET_ID=${1:-1}  # Usage: bash evaluation_checkpoint.sh [SET_ID], default is 1
 CKPT_ID=${2:-"num1000-checkpoint-30000"}
+NUM_EPISODES=${3:-20}
 
 TASK_NAMES_SET_1=(
     "PnPBottleToCabinetClose"
@@ -55,7 +56,6 @@ esac
 
 echo "Running evaluation for TASK SET $SET_ID: ${TASK_NAMES[*]}"
 BASE_PATH="/home/changyeon/evaluations/${CKPT_ID}"
-NUM_EPISODES=20
 for TASK_NAME in "${TASK_NAMES[@]}"; do
     python3 scripts/simulation_service.py --client \
         --max_episode_steps 720 \
