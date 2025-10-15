@@ -14,6 +14,9 @@
 # limitations under the License.
 
 import argparse
+import csv
+import os
+from pathlib import Path
 
 import numpy as np
 
@@ -50,6 +53,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--host", type=str, help="Host address for the server.", default="localhost"
     )
+    parser.add_argument("--output_dir", type=str, help="Directory to save results.", default=None)
     parser.add_argument("--video_dir", type=str, help="Directory to save videos.", default=None)
     parser.add_argument("--n_episodes", type=int, help="Number of episodes to run.", default=2)
     parser.add_argument("--n_envs", type=int, help="Number of parallel environments.", default=1)
@@ -105,6 +109,19 @@ if __name__ == "__main__":
         # Print results
         print(f"Results for {env_name}:")
         print(f"Success rate: {np.mean(episode_successes):.2f}")
+        os.makedirs(args.output_dir if args.output_dir else "./", exist_ok=True)
+        csv_path = Path(args.output_dir if args.output_dir else "./") / "eval.csv"
+        with open(csv_path, mode="w", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["episode", "success", "length"])
+            for i, succ in enumerate(episode_successes):
+                writer.writerow([i, int(succ)])
+        print(f"Saved evaluation results to {csv_path}")
+
+        success_path = Path(args.output_dir if args.output_dir else "./") / "success.txt"
+        with open(success_path, "w") as f:
+            f.write(f"Success Rate: {np.mean(episode_successes):.4f}\n")
+        print(f"Saved success rate to {success_path}")
 
     else:
         raise ValueError("Please specify either --server or --client")

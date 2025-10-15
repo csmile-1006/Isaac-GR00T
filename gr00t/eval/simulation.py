@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
+from tqdm import tqdm
 
 # Required for robocasa environments
 import robocasa  # noqa: F401
@@ -130,9 +131,19 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
         episode_successes = []
         # Initial environment reset
         obs, _ = self.env.reset()
+        pbar = tqdm(
+            total=config.n_episodes,
+            desc=f"Evaluating {config.n_episodes} episodes",
+            leave=False,
+        )
+        pbar2 = tqdm(
+            total=config.multistep.max_episode_steps,
+            desc=f"Evaluating {config.multistep.max_episode_steps} steps",
+            leave=False,
+        )
         # Main simulation loop
         while completed_episodes < config.n_episodes:
-            # Process observations and get actions from the server
+           # Process observations and get actions from the server
             actions = self._get_actions_from_server(obs)
             # Step the environment
             next_obs, rewards, terminations, truncations, env_infos = self.env.step(actions)
@@ -150,8 +161,17 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
                     # Reset trackers for this environment
                     current_rewards[env_idx] = 0
                     current_lengths[env_idx] = 0
+                    pbar.update(1)
+                    pbar2.close()
+                    pbar2 = tqdm(
+                        total=config.multistep.max_episode_steps,
+                        desc=f"Evaluating {config.multistep.max_episode_steps} steps",
+                        leave=False,
+                    )
             obs = next_obs
+            pbar2.update(actions[list(actions.keys())[0]].shape[1])
         # Clean up
+        pbar.close()
         self.env.reset()
         self.env.close()
         self.env = None
