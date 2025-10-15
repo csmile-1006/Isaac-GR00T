@@ -3,6 +3,7 @@
 # Split TASK_NAMES into 4 sets and select by SET_ID (1, 2, 3, or 4)
 
 SET_ID=${1:-1}  # Usage: bash evaluation_checkpoint.sh [SET_ID], default is 1
+CKPT_ID=${2:-"num1000-checkpoint-30000"}
 
 TASK_NAMES_SET_1=(
     "PnPBottleToCabinetClose"
@@ -53,7 +54,7 @@ case $SET_ID in
 esac
 
 echo "Running evaluation for TASK SET $SET_ID: ${TASK_NAMES[*]}"
-BASE_PATH="/home/changyeon/evaluations/num1000-checkpoint-30000"
+BASE_PATH="/home/changyeon/evaluations/${CKPT_ID}"
 NUM_EPISODES=20
 for TASK_NAME in "${TASK_NAMES[@]}"; do
     python3 scripts/simulation_service.py --client \
