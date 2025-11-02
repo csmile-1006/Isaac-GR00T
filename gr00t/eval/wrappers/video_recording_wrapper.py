@@ -201,6 +201,7 @@ class VideoRecordingWrapper(gym.Wrapper):
 
         self.is_success = False
         self.index = 0
+        self.video_id = str(uuid.uuid4())[:4]
 
     def reset(self, **kwargs):
         result = super().reset(**kwargs)
@@ -217,8 +218,9 @@ class VideoRecordingWrapper(gym.Wrapper):
 
         self.is_success = False
         if self.video_dir is not None:
-            self.file_path = self.video_dir / f"episode_{self.index:06d}.mp4"
+            self.file_path = self.video_dir / f"episode_{self.index:06d}_{self.video_id}.mp4"
             self.index += 1
+            self.video_id = str(uuid.uuid4())[:4]
         return result
 
     def step(self, action):
