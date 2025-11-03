@@ -44,5 +44,5 @@ for TASK_NAME in "${TASK_NAMES[@]}"; do
         --output_dir $BASE_PATH/stats/gr1_unified.${TASK_NAME}_GR1ArmsAndWaistFourierHands_Env \
         --video_dir $BASE_PATH/videos/gr1_unified.${TASK_NAME}_GR1ArmsAndWaistFourierHands_Env \
         --data_name ${TASK_NAME}_GR1ArmsAndWaistFourierHands_Env \
-        --output_name $BASE_PATH/lerobot_dataset/gr1_unified.${TASK_NAME}_GR1ArmsAndWaistFourierHands_Env
+        --lerobot_output_dir $BASE_PATH/rollouts/gr1_unified.${TASK_NAME}_GR1ArmsAndWaistFourierHands_Env
 done

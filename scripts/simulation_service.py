@@ -56,7 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("--video_dir", type=str, help="Directory to save videos.", default=None)
     # LeRobot dataset
     parser.add_argument("--data_name", type=str, help="Name of the LeRobot dataset.", default=None)
-    parser.add_argument("--output_name", type=str, help="Name of the output directory.", default=None)
+    parser.add_argument("--lerobot_output_dir", type=str, help="Name of the output directory.", default=None)
     parser.add_argument("--n_episodes", type=int, help="Number of episodes to run.", default=2)
     parser.add_argument("--n_envs", type=int, help="Number of parallel environments.", default=1)
     parser.add_argument(
@@ -97,7 +97,7 @@ if __name__ == "__main__":
             n_episodes=args.n_episodes,
             n_envs=args.n_envs,
             video=VideoConfig(video_dir=args.video_dir),
-            lerobot=LeRobotConfig(data_name=args.data_name, output_name=args.output_name),
+            lerobot=LeRobotConfig(data_name=args.data_name, output_dir=args.lerobot_output_dir),
             multistep=MultiStepConfig(n_action_steps=args.n_action_steps, max_episode_steps=args.max_episode_steps),
         )
 

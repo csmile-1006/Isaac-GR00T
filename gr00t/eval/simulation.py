@@ -20,14 +20,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
-from tqdm import tqdm
 
 # Required for robocasa environments
 import robocasa  # noqa: F401
 import robosuite  # noqa: F401
-from robocasa.utils.gym_utils import GrootRoboCasaEnv  # noqa: F401
-
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from robocasa.utils.gym_utils import GrootRoboCasaEnv  # noqa: F401
+from tqdm import tqdm
 
 from gr00t.data.dataset import ModalityConfig
 from gr00t.eval.service import BaseInferenceClient
@@ -68,12 +67,13 @@ class MultiStepConfig:
     n_action_steps: int = 16
     max_episode_steps: int = 1440
 
+
 @dataclass
 class LeRobotConfig:
     """Configuration for LeRobot dataset settings."""
 
     data_name: str = "lerobot/robot_sim.PickNPlace"
-    output_name: str = "./lerobot_dataset"
+    output_dir: str = "./lerobot_dataset"
     fps: float = 20.0
     robot_type: str = "GR1ArmsAndWaistFourierHands"
 
@@ -140,73 +140,43 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
                 "observation.state": {
                     "dtype": "float64",
                     "shape": (44,),
-                    "names": [
-                        *["left_arm" for _ in range(7)],
-                        *["left_hand" for _ in range(6)],
-                        *["left_leg" for _ in range(6)],
-                        *["neck" for _ in range(3)],
-                        *["right_arm" for _ in range(7)],
-                        *["right_hand" for _ in range(6)],
-                        *["right_leg" for _ in range(6)],
-                        *["waist" for _ in range(3)],
-                    ],
                 },
                 "action": {
                     "dtype": "float64",
                     "shape": (44,),
-                    "names": [
-                        *["left_arm" for _ in range(7)],
-                        *["left_hand" for _ in range(6)],
-                        *["left_leg" for _ in range(6)],
-                        *["neck" for _ in range(3)],
-                        *["right_arm" for _ in range(7)],
-                        *["right_hand" for _ in range(6)],
-                        *["right_leg" for _ in range(6)],
-                        *["waist" for _ in range(3)],
-                    ],
- 
                 },
                 "next.done": {
                     "dtype": "bool",
                     "shape": (1,),
-                    "names": ["done"],
                 },
                 "next.reward": {
                     "dtype": "float64",
                     "shape": (1,),
-                    "names": ["reward"],
                 },
                 "annotation.human.coarse_action": {
                     "dtype": "int64",
                     "shape": (1,),
-                    "names": ["human.coarse_action"],
                 },
                 "annotation.human.fine_action": {
                     "dtype": "int64",
                     "shape": (1,),
-                    "names": ["human.fine_action"],
                 },
-                # "task_index": {
-                #     "dtype": "int64",
-                #     "shape": (1,),
-                #     "names": ["task_index"],
-                # }
             },
             image_writer_threads=10,
             image_writer_processes=5,
         )
 
-    def _convert_dict_to_array(self, dict: Dict[str, Any], env_idx: int, key: str = "state") -> np.ndarray:
+    def _convert_dict_to_array(self, dict: Dict[str, Any], env_idx: int, i: int, key: str = "state") -> np.ndarray:
         """Convert a dictionary to a numpy array."""
         target_dict = {
-            f"{key}.left_arm": dict[f"{key}.left_arm"][env_idx, -1],
-            f"{key}.left_hand": dict[f"{key}.left_hand"][env_idx, -1],
+            f"{key}.left_arm": dict[f"{key}.left_arm"][env_idx, i],
+            f"{key}.left_hand": dict[f"{key}.left_hand"][env_idx, i],
             f"{key}.left_leg": np.zeros((6,), dtype=np.float64),
             f"{key}.neck": np.zeros((3,), dtype=np.float64),
-            f"{key}.right_arm": dict[f"{key}.right_arm"][env_idx, -1],
-            f"{key}.right_hand": dict[f"{key}.right_hand"][env_idx, -1],
+            f"{key}.right_arm": dict[f"{key}.right_arm"][env_idx, i],
+            f"{key}.right_hand": dict[f"{key}.right_hand"][env_idx, i],
             f"{key}.right_leg": np.zeros((6,), dtype=np.float64),
-            f"{key}.waist": dict[f"{key}.waist"][env_idx, -1],
+            f"{key}.waist": dict[f"{key}.waist"][env_idx, i],
         }
         return np.concatenate([target_dict[key] for key in target_dict.keys()])
 
@@ -224,10 +194,10 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
         completed_episodes = 0
         current_successes = [False] * config.n_envs
         episode_successes = []
-        
+
         # Episode data collection: track data for each environment
         episode_data = [[] for _ in range(config.n_envs)]
-        
+
         # Initial environment reset
         obs, _ = self.env.reset()
         pbar = tqdm(
@@ -246,30 +216,39 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
             actions = self._get_actions_from_server(obs)
             # Step the environment
             next_obs, rewards, terminations, truncations, env_infos = self.env.step(actions)
-            
+
             # Collect episode data for each environment
             for env_idx in range(config.n_envs):
                 current_successes[env_idx] |= bool(env_infos["success"][env_idx][0])
                 current_rewards[env_idx] += rewards[env_idx]
                 current_lengths[env_idx] += 1
-               
+
                 # Collect data for this step
-                step_data = {
-                    "observation.images.ego_view": obs["video.ego_view"][env_idx, -1],
-                    "observation.state": self._convert_dict_to_array(obs, env_idx, key="state"),
-                    "action": self._convert_dict_to_array(actions, env_idx, key="action"),
-                    "next.reward": np.array([rewards[env_idx]]),
-                    "next.done": np.array([bool(terminations[env_idx] or truncations[env_idx])]),
-                    "annotation.human.coarse_action": np.array([1]),
-                    "annotation.human.fine_action": np.array([1]),
-                    "task": obs['annotation.human.coarse_action'][env_idx],
-                }
-                episode_data[env_idx].append(step_data)
-                
+                chunk_length = min(config.multistep.n_action_steps, env_infos["rewards"][env_idx].shape[0])
+                for i in range(chunk_length):
+                    step_data = {
+                        "observation.images.ego_view": env_infos["observations"][
+                            "video.ego_view_bg_crop_pad_res256_freq20"
+                        ][env_idx, i],
+                        "observation.state": self._convert_dict_to_array(
+                            env_infos["observations"], env_idx, i, key="state"
+                        ),
+                        "action": self._convert_dict_to_array(actions, env_idx, i, key="action"),
+                        "next.reward": np.array([env_infos["rewards"][env_idx][i]], dtype=np.float64),
+                        "next.done": np.array(
+                            [bool(env_infos["dones"][env_idx][i] or env_infos["truncateds"][env_idx][i])],
+                            dtype=bool,
+                        ),
+                        "annotation.human.coarse_action": np.array([1]),
+                        "annotation.human.fine_action": np.array([1]),
+                        "task": obs["annotation.human.coarse_action"][env_idx],
+                    }
+                    episode_data[env_idx].append(step_data)
+
                 # If episode ended, store results
                 if terminations[env_idx] or truncations[env_idx]:
                     # Prepare episode data for saving
-                   
+
                     # For success demos, truncate at first success
                     if current_successes[env_idx]:
                         # Find first success index
@@ -278,7 +257,7 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
                             if step_data["next.reward"] > 0:
                                 first_success_idx = idx
                                 break
-                        
+
                         if first_success_idx is not None:
                             # Truncate to include one step after success (success_idx + 1)
                             truncate_idx = first_success_idx + 1
@@ -290,16 +269,16 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
                     for step_data in episode_data[env_idx]:
                         dataset.add_frame(step_data)
                     dataset.save_episode()
-                    
+
                     # Store results
                     episode_lengths.append(current_lengths[env_idx])
                     episode_successes.append(current_successes[env_idx])
                     current_successes[env_idx] = False
                     completed_episodes += 1
-                    
+
                     # Clear episode data for this environment
                     episode_data[env_idx] = []
-                    
+
                     # Reset trackers for this environment
                     current_rewards[env_idx] = 0
                     current_lengths[env_idx] = 0

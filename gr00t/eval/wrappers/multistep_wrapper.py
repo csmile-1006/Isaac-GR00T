@@ -157,13 +157,9 @@ class MultiStepWrapper(gym.Wrapper):
         """
         Get the maximum number of steps that we need to cache.
         """
-        video_max_steps_needed = (
-            np.max(self.video_delta_indices) - np.min(self.video_delta_indices) + 1
-        )
+        video_max_steps_needed = np.max(self.video_delta_indices) - np.min(self.video_delta_indices) + 1
         if self.state_delta_indices is not None:
-            state_max_steps_needed = (
-                np.max(self.state_delta_indices) - np.min(self.state_delta_indices) + 1
-            )
+            state_max_steps_needed = np.max(self.state_delta_indices) - np.min(self.state_delta_indices) + 1
         else:
             state_max_steps_needed = 0
         return int(max(video_max_steps_needed, state_max_steps_needed))
@@ -178,9 +174,7 @@ class MultiStepWrapper(gym.Wrapper):
         assert delta_indices[-1] == 0, f"{delta_indices=}"
         if len(delta_indices) > 1:
             # The step is consistent (because in real robot experiments, we actually use the dt to get the observations, which requires the step to be consistent)
-            assert np.all(
-                np.diff(delta_indices) == delta_indices[1] - delta_indices[0]
-            ), f"{delta_indices=}"
+            assert np.all(np.diff(delta_indices) == delta_indices[1] - delta_indices[0]), f"{delta_indices=}"
             # And the step is positive
             assert (delta_indices[1] - delta_indices[0]) > 0, f"{delta_indices=}"
 
@@ -202,8 +196,10 @@ class MultiStepWrapper(gym.Wrapper):
         action: dict: key-value pairs where the values are of shape (n_action_steps,) + action_shape
         """
         states = []
+        observations = [self._get_obs(self.video_delta_indices, self.state_delta_indices)]
         rewards = []
         dones = []
+        truncateds = []
         for step in range(self.n_action_steps):
             act = {}
             for key, value in action.items():
@@ -214,13 +210,13 @@ class MultiStepWrapper(gym.Wrapper):
             observation, reward, done, truncated, info = super().step(act)
             env_state = {"states": [], "model": []}
             states.append(env_state["states"])
+            observations.append(observation)
             rewards.append(reward)
             dones.append(done)
+            truncateds.append(truncated)
             self.obs.append(observation)
             self.reward.append(reward)
-            if (self.max_episode_steps is not None) and (
-                len(self.reward) >= self.max_episode_steps
-            ):
+            if (self.max_episode_steps is not None) and (len(self.reward) >= self.max_episode_steps):
                 # truncation
                 done = True
             self.done.append(done)
@@ -233,11 +229,25 @@ class MultiStepWrapper(gym.Wrapper):
         states = np.array(states)
         rewards = np.array(rewards)
         dones = np.array(dones)
+        truncateds = np.array(truncateds)
+
+        # Convert observations from list of dicts to dict with lists
+        if len(observations) > 0:
+            observation_dict = {}
+            for key in observations[0].keys():
+                if isinstance(observations[0][key], np.ndarray):
+                    observation_values = [obs[key].squeeze() for obs in observations]
+                else:
+                    observation_values = [obs[key] for obs in observations]
+                observation_dict[key] = np.asarray(observation_values)
+            info["observations"] = observation_dict
+
         info["states"] = states
         info["rewards"] = rewards
         info["model"] = env_state["model"]
         info["actions"] = action
         info["dones"] = dones
+        info["truncateds"] = truncateds
         return observation, reward, done, truncated, info
 
     def _get_obs(self, video_delta_indices, state_delta_indices):
