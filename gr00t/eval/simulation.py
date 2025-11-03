@@ -128,7 +128,7 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
         """Create a LeRobot dataset from the simulation data."""
         return LeRobotDataset.create(
             repo_id=config.lerobot.data_name,
-            root=config.lerobot.output_name,
+            root=config.lerobot.output_dir,
             robot_type=config.lerobot.robot_type,
             fps=int(config.lerobot.fps),
             features={
