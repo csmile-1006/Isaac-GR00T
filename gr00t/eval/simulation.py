@@ -27,6 +27,8 @@ import robocasa  # noqa: F401
 import robosuite  # noqa: F401
 from robocasa.utils.gym_utils import GrootRoboCasaEnv  # noqa: F401
 
+from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+
 from gr00t.data.dataset import ModalityConfig
 from gr00t.eval.service import BaseInferenceClient
 from gr00t.eval.wrappers.multistep_wrapper import MultiStepWrapper
@@ -66,6 +68,15 @@ class MultiStepConfig:
     n_action_steps: int = 16
     max_episode_steps: int = 1440
 
+@dataclass
+class LeRobotConfig:
+    """Configuration for LeRobot dataset settings."""
+
+    data_name: str = "lerobot/robot_sim.PickNPlace"
+    output_name: str = "./lerobot_dataset"
+    fps: float = 20.0
+    robot_type: str = "GR1ArmsAndWaistFourierHands"
+
 
 @dataclass
 class SimulationConfig:
@@ -76,6 +87,7 @@ class SimulationConfig:
     n_envs: int = 1
     video: VideoConfig = field(default_factory=VideoConfig)
     multistep: MultiStepConfig = field(default_factory=MultiStepConfig)
+    lerobot: LeRobotConfig = field(default_factory=LeRobotConfig)
 
 
 class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
@@ -91,9 +103,7 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
         # NOTE(YL)!
         # hot fix to change the video.ego_view_bg_crop_pad_res256_freq20 to video.ego_view
         if "video.ego_view_bg_crop_pad_res256_freq20" in observations:
-            observations["video.ego_view"] = observations.pop(
-                "video.ego_view_bg_crop_pad_res256_freq20"
-            )
+            observations["video.ego_view"] = observations.pop("video.ego_view_bg_crop_pad_res256_freq20")
         return self.call_endpoint("get_action", observations)
 
     def get_modality_config(self) -> Dict[str, ModalityConfig]:
@@ -114,12 +124,97 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
                 context="spawn",
             )
 
+    def create_lerobot_dataset(self, config: SimulationConfig) -> LeRobotDataset:
+        """Create a LeRobot dataset from the simulation data."""
+        return LeRobotDataset.create(
+            repo_id=config.lerobot.data_name,
+            root=config.lerobot.output_name,
+            robot_type=config.lerobot.robot_type,
+            fps=int(config.lerobot.fps),
+            features={
+                "observation.images.ego_view": {
+                    "dtype": "video",
+                    "shape": (256, 256, 3),
+                    "names": ["height", "width", "channel"],
+                },
+                "observation.state": {
+                    "dtype": "float64",
+                    "shape": (44,),
+                    "names": [
+                        *["left_arm" for _ in range(7)],
+                        *["left_hand" for _ in range(6)],
+                        *["left_leg" for _ in range(6)],
+                        *["neck" for _ in range(3)],
+                        *["right_arm" for _ in range(7)],
+                        *["right_hand" for _ in range(6)],
+                        *["right_leg" for _ in range(6)],
+                        *["waist" for _ in range(3)],
+                    ],
+                },
+                "action": {
+                    "dtype": "float64",
+                    "shape": (44,),
+                    "names": [
+                        *["left_arm" for _ in range(7)],
+                        *["left_hand" for _ in range(6)],
+                        *["left_leg" for _ in range(6)],
+                        *["neck" for _ in range(3)],
+                        *["right_arm" for _ in range(7)],
+                        *["right_hand" for _ in range(6)],
+                        *["right_leg" for _ in range(6)],
+                        *["waist" for _ in range(3)],
+                    ],
+ 
+                },
+                "next.done": {
+                    "dtype": "bool",
+                    "shape": (1,),
+                    "names": ["done"],
+                },
+                "next.reward": {
+                    "dtype": "float64",
+                    "shape": (1,),
+                    "names": ["reward"],
+                },
+                "annotation.human.coarse_action": {
+                    "dtype": "int64",
+                    "shape": (1,),
+                    "names": ["human.coarse_action"],
+                },
+                "annotation.human.fine_action": {
+                    "dtype": "int64",
+                    "shape": (1,),
+                    "names": ["human.fine_action"],
+                },
+                # "task_index": {
+                #     "dtype": "int64",
+                #     "shape": (1,),
+                #     "names": ["task_index"],
+                # }
+            },
+            image_writer_threads=10,
+            image_writer_processes=5,
+        )
+
+    def _convert_dict_to_array(self, dict: Dict[str, Any], env_idx: int, key: str = "state") -> np.ndarray:
+        """Convert a dictionary to a numpy array."""
+        target_dict = {
+            f"{key}.left_arm": dict[f"{key}.left_arm"][env_idx, -1],
+            f"{key}.left_hand": dict[f"{key}.left_hand"][env_idx, -1],
+            f"{key}.left_leg": np.zeros((6,), dtype=np.float64),
+            f"{key}.neck": np.zeros((3,), dtype=np.float64),
+            f"{key}.right_arm": dict[f"{key}.right_arm"][env_idx, -1],
+            f"{key}.right_hand": dict[f"{key}.right_hand"][env_idx, -1],
+            f"{key}.right_leg": np.zeros((6,), dtype=np.float64),
+            f"{key}.waist": dict[f"{key}.waist"][env_idx, -1],
+        }
+        return np.concatenate([target_dict[key] for key in target_dict.keys()])
+
     def run_simulation(self, config: SimulationConfig) -> Tuple[str, List[bool]]:
         """Run the simulation for the specified number of episodes."""
         start_time = time.time()
-        print(
-            f"Running {config.n_episodes} episodes for {config.env_name} with {config.n_envs} environments"
-        )
+        dataset = self.create_lerobot_dataset(config)
+        print(f"Running {config.n_episodes} episodes for {config.env_name} with {config.n_envs} environments")
         # Set up the environment
         self.env = self.setup_environment(config)
         # Initialize tracking variables
@@ -129,6 +224,10 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
         completed_episodes = 0
         current_successes = [False] * config.n_envs
         episode_successes = []
+        
+        # Episode data collection: track data for each environment
+        episode_data = [[] for _ in range(config.n_envs)]
+        
         # Initial environment reset
         obs, _ = self.env.reset()
         pbar = tqdm(
@@ -143,21 +242,64 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
         )
         # Main simulation loop
         while completed_episodes < config.n_episodes:
-           # Process observations and get actions from the server
+            # Process observations and get actions from the server
             actions = self._get_actions_from_server(obs)
             # Step the environment
             next_obs, rewards, terminations, truncations, env_infos = self.env.step(actions)
-            # Update episode tracking
+            
+            # Collect episode data for each environment
             for env_idx in range(config.n_envs):
                 current_successes[env_idx] |= bool(env_infos["success"][env_idx][0])
                 current_rewards[env_idx] += rewards[env_idx]
                 current_lengths[env_idx] += 1
+               
+                # Collect data for this step
+                step_data = {
+                    "observation.images.ego_view": obs["video.ego_view"][env_idx, -1],
+                    "observation.state": self._convert_dict_to_array(obs, env_idx, key="state"),
+                    "action": self._convert_dict_to_array(actions, env_idx, key="action"),
+                    "next.reward": np.array([rewards[env_idx]]),
+                    "next.done": np.array([bool(terminations[env_idx] or truncations[env_idx])]),
+                    "annotation.human.coarse_action": np.array([1]),
+                    "annotation.human.fine_action": np.array([1]),
+                    "task": obs['annotation.human.coarse_action'][env_idx],
+                }
+                episode_data[env_idx].append(step_data)
+                
                 # If episode ended, store results
                 if terminations[env_idx] or truncations[env_idx]:
+                    # Prepare episode data for saving
+                   
+                    # For success demos, truncate at first success
+                    if current_successes[env_idx]:
+                        # Find first success index
+                        first_success_idx = None
+                        for idx, step_data in enumerate(episode_data[env_idx]):
+                            if step_data["next.reward"] > 0:
+                                first_success_idx = idx
+                                break
+                        
+                        if first_success_idx is not None:
+                            # Truncate to include one step after success (success_idx + 1)
+                            truncate_idx = first_success_idx + 1
+                            episode_data[env_idx] = episode_data[env_idx][:truncate_idx]
+
+                            episode_data[env_idx][-1]["next.done"] = np.array([True])
+                            episode_data[env_idx][-1]["next.reward"] = np.array([1.0])
+
+                    for step_data in episode_data[env_idx]:
+                        dataset.add_frame(step_data)
+                    dataset.save_episode()
+                    
+                    # Store results
                     episode_lengths.append(current_lengths[env_idx])
                     episode_successes.append(current_successes[env_idx])
                     current_successes[env_idx] = False
                     completed_episodes += 1
+                    
+                    # Clear episode data for this environment
+                    episode_data[env_idx] = []
+                    
                     # Reset trackers for this environment
                     current_rewards[env_idx] = 0
                     current_lengths[env_idx] = 0
@@ -175,12 +317,10 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
         self.env.reset()
         self.env.close()
         self.env = None
-        print(
-            f"Collecting {config.n_episodes} episodes took {time.time() - start_time:.2f} seconds"
+        print(f"Collecting {config.n_episodes} episodes took {time.time() - start_time:.2f} seconds")
+        assert len(episode_successes) >= config.n_episodes, (
+            f"Expected at least {config.n_episodes} episodes, got {len(episode_successes)}"
         )
-        assert (
-            len(episode_successes) >= config.n_episodes
-        ), f"Expected at least {config.n_episodes} episodes, got {len(episode_successes)}"
         return config.env_name, episode_successes
 
     def _get_actions_from_server(self, observations: Dict[str, Any]) -> Dict[str, Any]:
@@ -257,9 +397,7 @@ def run_evaluation(
         n_episodes=n_episodes,
         n_envs=n_envs,
         video=VideoConfig(video_dir=video_dir),
-        multistep=MultiStepConfig(
-            n_action_steps=n_action_steps, max_episode_steps=max_episode_steps
-        ),
+        multistep=MultiStepConfig(n_action_steps=n_action_steps, max_episode_steps=max_episode_steps),
     )
     # Create client and run simulation
     client = SimulationInferenceClient(host=host, port=port)
