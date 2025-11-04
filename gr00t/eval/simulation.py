@@ -224,26 +224,27 @@ class SimulationInferenceClient(BaseInferenceClient, BasePolicy):
                 current_lengths[env_idx] += 1
 
                 # Collect data for this step
-                chunk_length = min(config.multistep.n_action_steps, env_infos["rewards"][env_idx].shape[0])
-                for i in range(chunk_length):
-                    step_data = {
-                        "observation.images.ego_view": env_infos["observations"][
-                            "video.ego_view_bg_crop_pad_res256_freq20"
-                        ][env_idx, i],
-                        "observation.state": self._convert_dict_to_array(
-                            env_infos["observations"], env_idx, i, key="state"
-                        ),
-                        "action": self._convert_dict_to_array(actions, env_idx, i, key="action"),
-                        "next.reward": np.array([env_infos["rewards"][env_idx][i]], dtype=np.float64),
-                        "next.done": np.array(
-                            [bool(env_infos["dones"][env_idx][i] or env_infos["truncateds"][env_idx][i])],
-                            dtype=bool,
-                        ),
-                        "annotation.human.coarse_action": np.array([1]),
-                        "annotation.human.fine_action": np.array([1]),
-                        "task": obs["annotation.human.coarse_action"][env_idx],
-                    }
-                    episode_data[env_idx].append(step_data)
+                if env_infos.get("observations") is not None and env_infos.get("rewards") is not None:
+                    chunk_length = min(config.multistep.n_action_steps, env_infos["rewards"][env_idx].shape[0])
+                    for i in range(chunk_length):
+                        step_data = {
+                            "observation.images.ego_view": env_infos["observations"][
+                                "video.ego_view_bg_crop_pad_res256_freq20"
+                            ][env_idx, i],
+                            "observation.state": self._convert_dict_to_array(
+                                env_infos["observations"], env_idx, i, key="state"
+                            ),
+                            "action": self._convert_dict_to_array(actions, env_idx, i, key="action"),
+                            "next.reward": np.array([env_infos["rewards"][env_idx][i]], dtype=np.float64),
+                            "next.done": np.array(
+                                [bool(env_infos["dones"][env_idx][i] or env_infos["truncateds"][env_idx][i])],
+                                dtype=bool,
+                            ),
+                            "annotation.human.coarse_action": np.array([1]),
+                            "annotation.human.fine_action": np.array([1]),
+                            "task": obs["annotation.human.coarse_action"][env_idx],
+                        }
+                        episode_data[env_idx].append(step_data)
 
                 # If episode ended, store results
                 if terminations[env_idx] or truncations[env_idx]:
