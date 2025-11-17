@@ -15,6 +15,7 @@ from tqdm import tqdm
 # --- Constants ---
 PAD = 6  # Padding for episode numbers (e.g., 000032)
 CHUNK_NAME_DEFAULT = "chunk-000"  # Default chunk name, primarily for CLI convenience
+FIXED_CHUNK_SIZE = 100  # Fixed chunk size for merging datasets
 MERGE_NUM_KEYS = ["total_tasks"]  # For merge_info
 DELETE_STEM_RE = re.compile(r"^episode_(\d{6})$")
 DELETE_PATCH_KEYS = {"episode_index", "index"}  # For delete _patch
@@ -112,31 +113,25 @@ class DatasetManager:
     # ─────────────────────────────────── MERGE Operation ─────────────────────────────────── #
 
     def merge_datasets(
-        self, dataset_paths_str: str, output_dir: Path, chunk_path: str, num_episodes: int, verbose: bool = False
+        self, dataset_paths_str: str, output_dir: Path, chunk_path: str, num_episodes: int, verbose: bool = False, chunk_size: int = FIXED_CHUNK_SIZE
     ):
         """
         Merges multiple Lerobot datasets into a new output directory.
+        Uses a fixed chunk size to organize episodes into chunks.
         """
         dataset_paths = [Path(p.strip()) for p in dataset_paths_str.strip().split() if p.strip()]
-        chunk_paths = [f"chunk-{i:03d}" for i in range(len(dataset_paths))]
         if not dataset_paths:
             print("No dataset paths provided for merging.")
             return
 
         if verbose:
             print(f"Starting merge operation. Output directory: {output_dir}")
+            print(f"Using fixed chunk size: {chunk_size}")
 
         meta_dst_dir = output_dir / "meta"
-
-        data_dst_dirs = [output_dir / "data" / chunk_path for chunk_path in chunk_paths]
-        video_dst_chunk_roots = [output_dir / "videos" / chunk_path for chunk_path in chunk_paths]
-
         self.safe_mkdir(meta_dst_dir)
-        for data_dst_dir in data_dst_dirs:
-            self.safe_mkdir(data_dst_dir)
-        for video_dst_chunk_root in video_dst_chunk_roots:
-            self.safe_mkdir(video_dst_chunk_root.parent)
-            self.safe_mkdir(video_dst_chunk_root)
+        self.safe_mkdir(output_dir / "data")
+        self.safe_mkdir(output_dir / "videos")
 
         cumulative_episode_offset_parquets = 0
         cumulative_frame_offset_parquets = 0
@@ -146,14 +141,15 @@ class DatasetManager:
 
         if verbose:
             print("--- Processing Parquet Files and Determining Episode Counts ---")
-        for i, (dataset_path, data_dst_dir) in enumerate(zip(dataset_paths, data_dst_dirs)):
+        for i, dataset_path in enumerate(dataset_paths):
             processed_eps, processed_frames = self._copy_parquet_and_update_indices_for_merge(
                 dataset_path,
-                data_dst_dir,
+                output_dir,
                 chunk_path,
                 cumulative_episode_offset_parquets,
                 cumulative_frame_offset_parquets,
                 num_episodes,
+                chunk_size,
                 verbose,
             )
             if verbose:
@@ -167,13 +163,13 @@ class DatasetManager:
         if verbose:
             print("\n--- Processing Metadata Files ---")
         self._merge_all_meta_files(
-            dataset_paths, meta_dst_dir, actual_episode_counts_per_dataset, actual_frame_counts_per_dataset, verbose
+            dataset_paths, meta_dst_dir, actual_episode_counts_per_dataset, actual_frame_counts_per_dataset, chunk_size, verbose
         )
 
         if verbose:
             print("\n--- Processing Video Files ---")
         self._copy_all_videos_for_merge(
-            dataset_paths, video_dst_chunk_roots, chunk_path, actual_episode_counts_per_dataset, verbose
+            dataset_paths, output_dir, chunk_path, actual_episode_counts_per_dataset, chunk_size, verbose
         )
 
         final_info_path = meta_dst_dir / "info.json"
@@ -196,30 +192,41 @@ class DatasetManager:
     def _copy_parquet_and_update_indices_for_merge(
         self,
         src_root: Path,
-        dst_data_dir: Path,
+        output_dir: Path,
         chunk_name: str,
         episode_idx_offset: int,
         frame_idx_offset: int,
         num_episodes: int,
+        chunk_size: int,
         verbose: bool,
-    ) -> int:
+    ) -> tuple[int, int]:
         src_chunk_dir = src_root / "data" / chunk_name
         if not src_chunk_dir.exists():
             if verbose:
                 print(f"Source chunk directory not found: {src_chunk_dir}")
-            return 0
+            return 0, 0
         src_files = self._natural_sort_paths(src_chunk_dir.glob("episode_*.parquet"))
         if not src_files:
             if verbose:
                 print(f"No Parquet files found in {src_chunk_dir}")
-            return 0
+            return 0, 0
 
         count_processed = 0
         frames_processed = 0
         for src_file_path in src_files[:num_episodes]:
             original_episode_idx = self._extract_idx_from_name(src_file_path.name)
             new_episode_global_idx = original_episode_idx + episode_idx_offset
-            dst_file_path = dst_data_dir / f"episode_{new_episode_global_idx:0{PAD}d}.parquet"
+            
+            # Determine which chunk this episode belongs to based on fixed chunk size
+            target_chunk_idx = new_episode_global_idx // chunk_size
+            target_chunk_name = f"chunk-{target_chunk_idx:03d}"
+            
+            # Create chunk directory if needed
+            dst_chunk_dir = output_dir / "data" / target_chunk_name
+            self.safe_mkdir(dst_chunk_dir)
+            
+            # Use global episode index for filename (e.g., episode_000100.parquet in chunk-001)
+            dst_file_path = dst_chunk_dir / f"episode_{new_episode_global_idx:0{PAD}d}.parquet"
             try:
                 df = pd.read_parquet(src_file_path)
                 if "episode_index" in df.columns:
@@ -243,6 +250,7 @@ class DatasetManager:
         meta_dst_dir: Path,
         actual_episode_counts: List[int],
         actual_frame_counts: List[int],
+        chunk_size: int,
         verbose: bool,
     ):
         current_meta_episode_offset = 0
@@ -255,6 +263,10 @@ class DatasetManager:
         for p in [ep_out, tasks_out, info_out]:
             p.unlink(missing_ok=True)
 
+        total_episodes_merged = 0
+        total_frames_merged = 0
+        total_new_tasks = 0
+
         for i, dataset_path in enumerate(dataset_paths):
             src_meta_dir = dataset_path / "meta"
             eps_in_this_ds_for_meta = actual_episode_counts[i]
@@ -262,6 +274,8 @@ class DatasetManager:
                 if verbose:
                     print(f"  Warning: Meta dir {src_meta_dir} not found.")
                 current_meta_episode_offset += eps_in_this_ds_for_meta
+                total_episodes_merged += eps_in_this_ds_for_meta
+                total_frames_merged += actual_frame_counts[i]
                 continue
 
             # SKIP THIS: calculate episode_stats in training GR00T-N1
@@ -301,10 +315,11 @@ class DatasetManager:
 
             # Merge tasks.jsonl
             num_new_tasks = 0
+            final_base_tasks = []
             src_tasks = src_meta_dir / "tasks.jsonl"
             if src_tasks.exists():
                 base_tasks = self.read_jsonl(tasks_out) if tasks_out.exists() else []
-                new_tasks = self.read_jsonl(src_tasks)[: actual_episode_counts[i]]
+                new_tasks = self.read_jsonl(src_tasks)
                 existing_task_names = {r["task"]: r["task_index"] for r in base_tasks}
                 next_idx = max(existing_task_names.values()) + 1 if existing_task_names else 0
                 for r_new in new_tasks:
@@ -313,7 +328,9 @@ class DatasetManager:
                         existing_task_names[r_new["task"]] = next_idx
                         next_idx += 1
                         num_new_tasks += 1
-                self.write_jsonl(sorted(base_tasks, key=lambda x: x["task_index"]), tasks_out)
+                final_base_tasks = sorted(base_tasks, key=lambda x: x["task_index"])
+                self.write_jsonl(final_base_tasks, tasks_out)
+                total_new_tasks += num_new_tasks
 
             # Merge info.json
             src_info = src_meta_dir / "info.json"
@@ -342,12 +359,21 @@ class DatasetManager:
                 # total_eps = merged_info.get("total_episodes", 0)
                 # merged_info.setdefault("splits", {})["train"] = f"0:{total_eps - 1 if total_eps > 0 else 0}"
                 merged_info.setdefault("splits", {})["train"] = "0:100"
-                # custom setting for chunk number and chunk size
-                merged_info["chunks_size"] = actual_episode_counts[i]
-                merged_info["total_episodes"] = merged_info.get("total_episodes", 0) + actual_episode_counts[i]
-                merged_info["total_frames"] = merged_info.get("total_frames", 0) + actual_frame_counts[i]
-                merged_info["total_chunks"] = merged_info.get("total_chunks", 0) + 1
-                merged_info["total_tasks"] = merged_info.get("total_tasks", 0) + num_new_tasks
+                
+                # Accumulate totals
+                total_episodes_merged += actual_episode_counts[i]
+                total_frames_merged += actual_frame_counts[i]
+                
+                # Set fixed chunk size and calculate total chunks
+                merged_info["chunks_size"] = chunk_size
+                merged_info["total_episodes"] = total_episodes_merged
+                merged_info["total_frames"] = total_frames_merged
+                merged_info["total_chunks"] = (total_episodes_merged + chunk_size - 1) // chunk_size  # Ceiling division
+                # Use the actual number of tasks from tasks.jsonl
+                if final_base_tasks:
+                    merged_info["total_tasks"] = len(final_base_tasks)
+                else:
+                    merged_info["total_tasks"] = merged_info.get("total_tasks", 0) + num_new_tasks
 
                 info_out.write_text(json.dumps(merged_info, indent=2))
 
@@ -366,13 +392,14 @@ class DatasetManager:
     def _copy_all_videos_for_merge(
         self,
         dataset_paths: List[Path],
-        video_dst_chunk_roots: List[Path],
+        output_dir: Path,
         chunk_name: str,
         actual_episode_counts: List[int],
+        chunk_size: int,
         verbose: bool,
     ):
         current_video_start_idx = 0
-        for i, (dataset_path, video_dst_chunk_root) in enumerate(zip(dataset_paths, video_dst_chunk_roots)):
+        for i, dataset_path in enumerate(dataset_paths):
             src_video_root = dataset_path / "videos" / chunk_name
             eps_in_this_ds = actual_episode_counts[i]
             if not src_video_root.exists():
@@ -385,16 +412,38 @@ class DatasetManager:
             if not cam_dirs:  # Videos directly under chunk root
                 vids_in_chunk = self._natural_sort_paths(src_video_root.glob("episode_*.mp4"))
                 for src_vid in vids_in_chunk[:eps_in_this_ds]:
-                    dst_idx = self._extract_idx_from_name(src_vid.name) + current_video_start_idx
-                    shutil.copy2(src_vid, video_dst_chunk_root / f"episode_{dst_idx:0{PAD}d}.mp4")
+                    original_episode_idx = self._extract_idx_from_name(src_vid.name)
+                    new_episode_global_idx = original_episode_idx + current_video_start_idx
+                    
+                    # Determine which chunk this episode belongs to based on fixed chunk size
+                    target_chunk_idx = new_episode_global_idx // chunk_size
+                    target_chunk_name = f"chunk-{target_chunk_idx:03d}"
+                    
+                    # Create chunk directory if needed
+                    dst_video_chunk_dir = output_dir / "videos" / target_chunk_name
+                    self.safe_mkdir(dst_video_chunk_dir)
+                    
+                    # Use global episode index for filename (e.g., episode_000100.mp4 in chunk-001)
+                    shutil.copy2(src_vid, dst_video_chunk_dir / f"episode_{new_episode_global_idx:0{PAD}d}.mp4")
             else:  # Videos in camera subdirectories
                 for cam_dir_path in cam_dirs:
-                    dst_cam_path = video_dst_chunk_root / cam_dir_path.name
-                    self.safe_mkdir(dst_cam_path)
                     vids = self._natural_sort_paths(cam_dir_path.glob("episode_*.mp4"))
                     for src_vid_path in vids[:eps_in_this_ds]:
-                        dst_idx = self._extract_idx_from_name(src_vid_path.name) + current_video_start_idx
-                        shutil.copy2(src_vid_path, dst_cam_path / f"episode_{dst_idx:0{PAD}d}.mp4")
+                        original_episode_idx = self._extract_idx_from_name(src_vid_path.name)
+                        new_episode_global_idx = original_episode_idx + current_video_start_idx
+                        
+                        # Determine which chunk this episode belongs to based on fixed chunk size
+                        target_chunk_idx = new_episode_global_idx // chunk_size
+                        target_chunk_name = f"chunk-{target_chunk_idx:03d}"
+                        
+                        # Create chunk directory and camera subdirectory if needed
+                        dst_video_chunk_dir = output_dir / "videos" / target_chunk_name
+                        self.safe_mkdir(dst_video_chunk_dir)
+                        dst_cam_path = dst_video_chunk_dir / cam_dir_path.name
+                        self.safe_mkdir(dst_cam_path)
+                        
+                        # Use global episode index for filename (e.g., episode_000100.mp4 in chunk-001)
+                        shutil.copy2(src_vid_path, dst_cam_path / f"episode_{new_episode_global_idx:0{PAD}d}.mp4")
             if verbose:
                 print(f"  Copied videos from {dataset_path} with offset {current_video_start_idx}")
             current_video_start_idx += eps_in_this_ds
@@ -1176,6 +1225,12 @@ def main_cli():
         default=100,
         help="Number of episodes to merge. If not provided, all episodes will be merged.",
     )
+    parser_merge.add_argument(
+        "--chunk_size",
+        type=int,
+        default=FIXED_CHUNK_SIZE,
+        help=f"Fixed chunk size for organizing episodes (default: {FIXED_CHUNK_SIZE}).",
+    )
     parser_merge.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output.")
 
     # --- Delete command ---
@@ -1294,7 +1349,7 @@ def main_cli():
     manager = DatasetManager()
 
     if args.command == "merge":
-        manager.merge_datasets(args.datasets, args.output_dir, args.chunk_name, args.num_episodes, args.verbose)
+        manager.merge_datasets(args.datasets, args.output_dir, args.chunk_name, args.num_episodes, args.verbose, args.chunk_size)
     elif args.command == "delete":
         manager.delete_episode_from_dataset(args.dataset_dir, args.episode_id, args.chunk_name, args.verbose)
     elif args.command == "split":
