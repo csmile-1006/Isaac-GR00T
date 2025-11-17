@@ -22,9 +22,9 @@ done
 
 CMD="python gr00t/data/data_merger.py merge \
   --datasets '${DEMO_DATASETS} \
-             ${SUCCESS_DATASETS} \
+            ${ROLLOUT_DATASETS} \
              ' \
-  --output_dir ~/data/deas_robocasa_demo_success \
+  --output_dir ~/data/changyeon/deas_robocasa_demo_rollouts \
   --verbose"
 
 echo $CMD
